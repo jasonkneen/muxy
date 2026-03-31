@@ -7,21 +7,36 @@ let package = Package(
     platforms: [
         .macOS(.v14),
     ],
-    dependencies: [
-        .package(
-            url: "https://github.com/migueldeicaza/SwiftTerm.git",
-            from: "1.13.0"
-        ),
-    ],
     targets: [
+        // C module exposing the ghostty.h header
+        .target(
+            name: "GhosttyKit",
+            path: "GhosttyKit",
+            publicHeadersPath: "."
+        ),
+        // The main app, links against the prebuilt static library
         .executableTarget(
             name: "Muxy",
-            dependencies: [
-                .product(name: "SwiftTerm", package: "SwiftTerm"),
-            ],
+            dependencies: ["GhosttyKit"],
             path: "Muxy",
             resources: [
                 .process("Resources"),
+            ],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-L", "GhosttyKit.xcframework/macos-arm64_x86_64",
+                    "-lghostty",
+                ]),
+                .linkedFramework("AppKit"),
+                .linkedFramework("Carbon"),
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("CoreText"),
+                .linkedFramework("Foundation"),
+                .linkedFramework("IOKit"),
+                .linkedFramework("Metal"),
+                .linkedFramework("MetalKit"),
+                .linkedFramework("QuartzCore"),
+                .linkedLibrary("c++"),
             ]
         ),
     ]

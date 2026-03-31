@@ -1,5 +1,5 @@
 import SwiftUI
-import SwiftTerm
+import AppKit
 
 struct TerminalPaneView: View {
     let paneState: TerminalPaneState
@@ -9,7 +9,7 @@ struct TerminalPaneView: View {
     let onClose: () -> Void
 
     var body: some View {
-        SwiftTermView(paneState: paneState, onFocus: onFocus)
+        GhosttyTerminalRepresentable(paneState: paneState, onFocus: onFocus)
             .overlay {
                 if isFocused {
                     Rectangle()
@@ -20,61 +20,29 @@ struct TerminalPaneView: View {
     }
 }
 
-// MARK: - NSViewRepresentable wrapper for SwiftTerm
-
-struct SwiftTermView: NSViewRepresentable {
+struct GhosttyTerminalRepresentable: NSViewRepresentable {
     let paneState: TerminalPaneState
     let onFocus: () -> Void
 
-    func makeNSView(context: Context) -> LocalProcessTerminalView {
-        let terminalView = LocalProcessTerminalView(frame: .zero)
-        terminalView.processDelegate = context.coordinator
-        terminalView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        terminalView.configureNativeColors()
+    func makeNSView(context: Context) -> GhosttyTerminalNSView {
+        let view = GhosttyTerminalNSView(workingDirectory: paneState.projectPath)
+        view.onFocus = onFocus
+        view.onTitleChange = { [weak paneState] title in
+            paneState?.title = title
+        }
 
-        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-        terminalView.startProcess(
-            executable: shell,
-            currentDirectory: paneState.projectPath
-        )
+        // Focus the terminal after the window is ready
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            view.window?.makeFirstResponder(view)
+        }
 
-        paneState.terminalView = terminalView
-        return terminalView
+        return view
     }
 
-    func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {
-        // No dynamic updates needed — the terminal manages itself
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(paneState: paneState, onFocus: onFocus)
-    }
-
-    @MainActor
-    final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
-        let paneState: TerminalPaneState
-        let onFocus: () -> Void
-
-        init(paneState: TerminalPaneState, onFocus: @escaping () -> Void) {
-            self.paneState = paneState
-            self.onFocus = onFocus
-        }
-
-        // MARK: - LocalProcessTerminalViewDelegate
-
-        nonisolated func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {
-        }
-
-        nonisolated func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
-            Task { @MainActor in
-                self.paneState.title = title
-            }
-        }
-
-        nonisolated func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
-        }
-
-        nonisolated func processTerminated(source: TerminalView, exitCode: Int32?) {
+    func updateNSView(_ nsView: GhosttyTerminalNSView, context: Context) {
+        // Reclaim focus on tab switch
+        DispatchQueue.main.async {
+            nsView.window?.makeFirstResponder(nsView)
         }
     }
 }
