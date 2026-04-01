@@ -79,6 +79,11 @@ final class GhosttyService {
             }
         }
         rt.close_surface_cb = { userdata, needsConfirm in
+            guard let userdata else { return }
+            let view = Unmanaged<GhosttyTerminalNSView>.fromOpaque(userdata).takeUnretainedValue()
+            DispatchQueue.main.async {
+                view.onProcessExit?()
+            }
         }
 
         guard let createdApp = ghostty_app_new(&rt, cfg) else {

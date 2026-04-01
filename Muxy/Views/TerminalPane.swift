@@ -5,9 +5,10 @@ struct TerminalPane: View {
     let state: TerminalPaneState
     let focused: Bool
     let onFocus: () -> Void
+    let onProcessExit: () -> Void
 
     var body: some View {
-        TerminalBridge(state: state, focused: focused, onFocus: onFocus)
+        TerminalBridge(state: state, focused: focused, onFocus: onFocus, onProcessExit: onProcessExit)
     }
 }
 
@@ -15,6 +16,7 @@ struct TerminalBridge: NSViewRepresentable {
     let state: TerminalPaneState
     let focused: Bool
     let onFocus: () -> Void
+    let onProcessExit: () -> Void
 
     final class Coordinator {
         var wasFocused = false
@@ -26,6 +28,7 @@ struct TerminalBridge: NSViewRepresentable {
         let view = GhosttyTerminalNSView(workingDirectory: state.projectPath)
         view.isFocused = focused
         view.onFocus = onFocus
+        view.onProcessExit = onProcessExit
         view.onTitleChange = { [weak state] title in
             state?.title = title
         }
@@ -40,6 +43,7 @@ struct TerminalBridge: NSViewRepresentable {
 
     func updateNSView(_ nsView: GhosttyTerminalNSView, context: Context) {
         nsView.onFocus = onFocus
+        nsView.onProcessExit = onProcessExit
         let wasFocused = context.coordinator.wasFocused
         context.coordinator.wasFocused = focused
         nsView.isFocused = focused

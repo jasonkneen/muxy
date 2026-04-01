@@ -4,10 +4,26 @@ import SwiftUI
 @MainActor
 @Observable
 final class AppState {
-    var activeProjectID: UUID?
+    var activeProjectID: UUID? {
+        didSet { saveSelection() }
+    }
     var workspaceRoots: [UUID: SplitNode] = [:]
     var focusedAreaID: [UUID: UUID] = [:]
     private var focusHistory: [UUID: [UUID]] = [:]
+
+    private static let activeProjectKey = "muxy.activeProjectID"
+
+    func restoreSelection(projects: [Project]) {
+        guard let idString = UserDefaults.standard.string(forKey: Self.activeProjectKey),
+              let id = UUID(uuidString: idString),
+              let project = projects.first(where: { $0.id == id }) else { return }
+        activeProjectID = project.id
+        ensureWorkspaceExists(for: project)
+    }
+
+    private func saveSelection() {
+        UserDefaults.standard.set(activeProjectID?.uuidString, forKey: Self.activeProjectKey)
+    }
 
     func workspaceRoot(for projectID: UUID) -> SplitNode? {
         workspaceRoots[projectID]

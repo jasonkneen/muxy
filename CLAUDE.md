@@ -66,3 +66,5 @@ See [docs/building-ghostty.md](docs/building-ghostty.md) for full details.
 - No commenting allowed in the codebase
 - All code must be self-explanatory and cleanly structured
 - Use early returns instead of nested conditionals
+- Don't patch symptoms, fix root causes
+- For every task, Consider how it will impact the architecture and code quality, not just the immediate problem

@@ -24,6 +24,9 @@ struct MainWindow: View {
         }
         .background(MuxyTheme.bg)
         .edgesIgnoringSafeArea(.top)
+        .onAppear {
+            appState.restoreSelection(projects: projectStore.projects)
+        }
     }
 
     private var activeProject: Project? {

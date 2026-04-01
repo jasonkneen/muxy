@@ -7,6 +7,7 @@ final class GhosttyTerminalNSView: NSView {
     private let workingDirectory: String
     var onTitleChange: ((String) -> Void)?
     var onFocus: (() -> Void)?
+    var onProcessExit: (() -> Void)?
     var isFocused: Bool = false
 
     private var _markedRange: NSRange = .init(location: NSNotFound, length: 0)

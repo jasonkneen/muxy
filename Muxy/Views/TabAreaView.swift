@@ -25,7 +25,8 @@ struct TabAreaView: View {
                     TerminalPane(
                         state: tab.pane,
                         focused: isFocused && isActive && isActiveProject,
-                        onFocus: onFocus
+                        onFocus: onFocus,
+                        onProcessExit: { onCloseTab(tab.id) }
                     )
                     .id(tab.id)
                     .opacity(isActive ? 1 : 0)
