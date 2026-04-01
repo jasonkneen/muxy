@@ -4,8 +4,19 @@ import SwiftUI
 @main
 struct MuxyApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @State private var appState = AppState()
-    @State private var projectStore = ProjectStore()
+    @State private var appState: AppState
+    @State private var projectStore: ProjectStore
+
+    init() {
+        let environment = AppEnvironment.live
+        _appState = State(initialValue: AppState(
+            selectionStore: environment.selectionStore,
+            terminalViews: environment.terminalViews
+        ))
+        _projectStore = State(initialValue: ProjectStore(
+            persistence: environment.projectPersistence
+        ))
+    }
 
     var body: some Scene {
         WindowGroup {

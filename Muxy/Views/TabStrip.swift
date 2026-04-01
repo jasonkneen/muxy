@@ -4,6 +4,8 @@ struct PaneTabStrip: View {
     let area: TabArea
     let isFocused: Bool
     let onFocus: () -> Void
+    let onSelectTab: (UUID) -> Void
+    let onCreateTab: () -> Void
     let onCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
     let onClose: () -> Void
@@ -17,7 +19,7 @@ struct PaneTabStrip: View {
                     paneFocused: isFocused,
                     onSelect: {
                         onFocus()
-                        area.selectTab(tab.id)
+                        onSelectTab(tab.id)
                     },
                     onClose: { onCloseTab(tab.id) }
                 )
@@ -29,7 +31,7 @@ struct PaneTabStrip: View {
             HStack(spacing: 0) {
                 IconButton(symbol: "square.split.2x1") { onSplit(.horizontal) }
                 IconButton(symbol: "square.split.1x2") { onSplit(.vertical) }
-                IconButton(symbol: "plus") { area.createTab() }
+                IconButton(symbol: "plus") { onCreateTab() }
             }
             .padding(.trailing, 4)
         }

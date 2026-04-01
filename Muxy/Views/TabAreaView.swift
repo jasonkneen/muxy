@@ -5,6 +5,8 @@ struct TabAreaView: View {
     let isFocused: Bool
     let isActiveProject: Bool
     let onFocus: () -> Void
+    let onSelectTab: (UUID) -> Void
+    let onCreateTab: () -> Void
     let onCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
     let onClose: () -> Void
@@ -15,6 +17,8 @@ struct TabAreaView: View {
                 area: area,
                 isFocused: isFocused,
                 onFocus: onFocus,
+                onSelectTab: onSelectTab,
+                onCreateTab: onCreateTab,
                 onCloseTab: onCloseTab,
                 onSplit: onSplit,
                 onClose: onClose

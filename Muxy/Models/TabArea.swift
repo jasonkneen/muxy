@@ -30,21 +30,20 @@ final class TabArea: Identifiable {
         activeTabID = tab.id
     }
 
-    func closeTab(_ tabID: UUID) {
-        if let tab = tabs.first(where: { $0.id == tabID }) {
-            TerminalViewRegistry.shared.removeView(for: tab.pane.id)
-        }
+    func closeTab(_ tabID: UUID) -> UUID? {
+        let closedPaneID = tabs.first(where: { $0.id == tabID })?.pane.id
         tabs.removeAll { $0.id == tabID }
         tabHistory.removeAll { $0 == tabID }
-        guard activeTabID == tabID else { return }
+        guard activeTabID == tabID else { return closedPaneID }
         let validIDs = Set(tabs.map(\.id))
         while let prev = tabHistory.popLast() {
             if validIDs.contains(prev) {
                 activeTabID = prev
-                return
+                return closedPaneID
             }
         }
         activeTabID = tabs.last?.id
+        return closedPaneID
     }
 
     func selectTab(_ tabID: UUID) {

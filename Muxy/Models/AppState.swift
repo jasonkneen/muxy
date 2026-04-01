@@ -4,6 +4,23 @@ import SwiftUI
 @MainActor
 @Observable
 final class AppState {
+    enum Action {
+        case selectProject(projectID: UUID, projectPath: String)
+        case removeProject(projectID: UUID)
+        case createTab(projectID: UUID, areaID: UUID?)
+        case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
+        case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
+        case selectTabByIndex(projectID: UUID, areaID: UUID?, index: Int)
+        case splitArea(projectID: UUID, areaID: UUID, direction: SplitDirection, projectPath: String)
+        case closeArea(projectID: UUID, areaID: UUID)
+        case focusArea(projectID: UUID, areaID: UUID)
+        case focusNextArea(projectID: UUID)
+        case focusPreviousArea(projectID: UUID)
+    }
+
+    private let selectionStore: any ActiveProjectSelectionStoring
+    private let terminalViews: any TerminalViewRemoving
+
     var activeProjectID: UUID? {
         didSet { saveSelection() }
     }
@@ -11,22 +28,30 @@ final class AppState {
     var focusedAreaID: [UUID: UUID] = [:]
     private var focusHistory: [UUID: [UUID]] = [:]
 
-    private static let activeProjectKey = "muxy.activeProjectID"
+    init(
+        selectionStore: any ActiveProjectSelectionStoring,
+        terminalViews: any TerminalViewRemoving
+    ) {
+        self.selectionStore = selectionStore
+        self.terminalViews = terminalViews
+    }
 
     func restoreSelection(projects: [Project]) {
-        guard let idString = UserDefaults.standard.string(forKey: Self.activeProjectKey),
-              let id = UUID(uuidString: idString),
+        guard let id = selectionStore.loadActiveProjectID(),
               let project = projects.first(where: { $0.id == id }) else { return }
-        activeProjectID = project.id
-        ensureWorkspaceExists(for: project)
+        selectProject(project)
     }
 
     private func saveSelection() {
-        UserDefaults.standard.set(activeProjectID?.uuidString, forKey: Self.activeProjectKey)
+        selectionStore.saveActiveProjectID(activeProjectID)
     }
 
     func workspaceRoot(for projectID: UUID) -> SplitNode? {
         workspaceRoots[projectID]
+    }
+
+    func selectProject(_ project: Project) {
+        dispatch(.selectProject(projectID: project.id, projectPath: project.path))
     }
 
     func focusedArea(for projectID: UUID) -> TabArea? {
@@ -39,134 +64,65 @@ final class AppState {
         workspaceRoots[projectID]?.allAreas() ?? []
     }
 
-    func splitArea(_ areaID: UUID, direction: SplitDirection, projectID: UUID, projectPath: String) {
-        guard let root = workspaceRoots[projectID] else { return }
-        let (newRoot, newAreaID) = root.splitting(areaID: areaID, direction: direction, projectPath: projectPath)
-        workspaceRoots[projectID] = newRoot
-        if let newAreaID {
-            if let current = focusedAreaID[projectID] {
-                focusHistory[projectID, default: []].append(current)
-            }
-            focusedAreaID[projectID] = newAreaID
-        }
+    func splitFocusedArea(direction: SplitDirection, projectID: UUID) {
+        guard let area = focusedArea(for: projectID) else { return }
+        dispatch(.splitArea(
+            projectID: projectID,
+            areaID: area.id,
+            direction: direction,
+            projectPath: area.projectPath
+        ))
     }
 
     func closeArea(_ areaID: UUID, projectID: UUID) {
-        guard let root = workspaceRoots[projectID] else { return }
-        if let area = root.findArea(id: areaID) {
-            cleanupTerminalViews(for: area)
-        }
-        guard let newRoot = root.removing(areaID: areaID) else {
-            workspaceRoots.removeValue(forKey: projectID)
-            focusedAreaID.removeValue(forKey: projectID)
-            focusHistory.removeValue(forKey: projectID)
-            activeProjectID = nil
-            return
-        }
-        workspaceRoots[projectID] = newRoot
-        focusHistory[projectID]?.removeAll { $0 == areaID }
-        if focusedAreaID[projectID] == areaID {
-            let remaining = newRoot.allAreas()
-            let previousID = popFocusHistory(projectID: projectID, validAreas: remaining)
-            focusedAreaID[projectID] = previousID ?? remaining.first?.id
-        }
-    }
-
-    private func popFocusHistory(projectID: UUID, validAreas: [TabArea]) -> UUID? {
-        let validIDs = Set(validAreas.map(\.id))
-        while let last = focusHistory[projectID]?.popLast() {
-            if validIDs.contains(last) {
-                return last
-            }
-        }
-        return nil
+        dispatch(.closeArea(projectID: projectID, areaID: areaID))
     }
 
     func createTab(projectID: UUID) {
-        guard let area = focusedArea(for: projectID) else { return }
-        area.createTab()
+        dispatch(.createTab(projectID: projectID, areaID: nil))
     }
 
     func closeTab(_ tabID: UUID, projectID: UUID) {
         guard let area = focusedArea(for: projectID) else { return }
-        closeTabInArea(tabID, areaID: area.id, projectID: projectID)
-    }
-
-    func closeTabInArea(_ tabID: UUID, areaID: UUID, projectID: UUID) {
-        guard let root = workspaceRoots[projectID],
-              let area = root.findArea(id: areaID) else { return }
-        let areaCount = allAreas(for: projectID).count
-        if area.tabs.count <= 1 && areaCount > 1 {
-            closeArea(areaID, projectID: projectID)
-            return
-        }
-        area.closeTab(tabID)
-        if area.tabs.isEmpty {
-            workspaceRoots.removeValue(forKey: projectID)
-            focusedAreaID.removeValue(forKey: projectID)
-            focusHistory.removeValue(forKey: projectID)
-            activeProjectID = nil
-        }
-    }
-
-    func selectTab(_ tabID: UUID, projectID: UUID) {
-        guard let area = focusedArea(for: projectID) else { return }
-        area.selectTab(tabID)
+        dispatch(.closeTab(projectID: projectID, areaID: area.id, tabID: tabID))
     }
 
     func selectTabByIndex(_ index: Int, projectID: UUID) {
-        guard let area = focusedArea(for: projectID) else { return }
-        area.selectTabByIndex(index)
+        dispatch(.selectTabByIndex(projectID: projectID, areaID: nil, index: index))
+    }
+
+    func dispatch(_ action: Action) {
+        var workspace = WorkspaceState(
+            activeProjectID: activeProjectID,
+            workspaceRoots: workspaceRoots,
+            focusedAreaID: focusedAreaID,
+            focusHistory: focusHistory
+        )
+        let effects = WorkspaceReducer.reduce(action: action, state: &workspace)
+        activeProjectID = workspace.activeProjectID
+        workspaceRoots = workspace.workspaceRoots
+        focusedAreaID = workspace.focusedAreaID
+        focusHistory = workspace.focusHistory
+
+        for paneID in effects.paneIDsToRemove {
+            terminalViews.removeView(for: paneID)
+        }
     }
 
     func focusArea(_ areaID: UUID, projectID: UUID) {
-        if let current = focusedAreaID[projectID], current != areaID {
-            focusHistory[projectID, default: []].append(current)
-        }
-        focusedAreaID[projectID] = areaID
+        dispatch(.focusArea(projectID: projectID, areaID: areaID))
     }
 
     func focusNextArea(projectID: UUID) {
-        cycleFocus(projectID: projectID, forward: true)
+        dispatch(.focusNextArea(projectID: projectID))
     }
 
     func focusPreviousArea(projectID: UUID) {
-        cycleFocus(projectID: projectID, forward: false)
-    }
-
-    private func cycleFocus(projectID: UUID, forward: Bool) {
-        let areas = allAreas(for: projectID)
-        guard areas.count > 1, let currentID = focusedAreaID[projectID],
-              let index = areas.firstIndex(where: { $0.id == currentID }) else { return }
-        let next = forward ? (index + 1) % areas.count : (index - 1 + areas.count) % areas.count
-        focusedAreaID[projectID] = areas[next].id
-    }
-
-    func ensureWorkspaceExists(for project: Project) {
-        guard workspaceRoots[project.id] == nil else { return }
-        let area = TabArea(projectPath: project.path)
-        workspaceRoots[project.id] = .tabArea(area)
-        focusedAreaID[project.id] = area.id
+        dispatch(.focusPreviousArea(projectID: projectID))
     }
 
     func removeProject(_ projectID: UUID) {
-        if let root = workspaceRoots[projectID] {
-            for area in root.allAreas() {
-                cleanupTerminalViews(for: area)
-            }
-        }
-        workspaceRoots.removeValue(forKey: projectID)
-        focusedAreaID.removeValue(forKey: projectID)
-        focusHistory.removeValue(forKey: projectID)
-        if activeProjectID == projectID {
-            activeProjectID = nil
-        }
+        dispatch(.removeProject(projectID: projectID))
     }
 
-    private func cleanupTerminalViews(for area: TabArea) {
-        let registry = TerminalViewRegistry.shared
-        for tab in area.tabs {
-            registry.removeView(for: tab.pane.id)
-        }
-    }
 }

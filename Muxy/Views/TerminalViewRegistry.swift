@@ -21,3 +21,5 @@ final class TerminalViewRegistry {
         views.removeValue(forKey: paneID)
     }
 }
+
+extension TerminalViewRegistry: TerminalViewRemoving {}

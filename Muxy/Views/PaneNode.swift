@@ -5,6 +5,8 @@ struct PaneNode: View {
     let focusedAreaID: UUID?
     let isActiveProject: Bool
     let onFocusArea: (UUID) -> Void
+    let onSelectTab: (UUID, UUID) -> Void
+    let onCreateTab: (UUID) -> Void
     let onCloseTab: (UUID, UUID) -> Void
     let onSplit: (UUID, SplitDirection) -> Void
     let onCloseArea: (UUID) -> Void
@@ -17,6 +19,8 @@ struct PaneNode: View {
                 isFocused: focusedAreaID == area.id,
                 isActiveProject: isActiveProject,
                 onFocus: { onFocusArea(area.id) },
+                onSelectTab: { tabID in onSelectTab(area.id, tabID) },
+                onCreateTab: { onCreateTab(area.id) },
                 onCloseTab: { tabID in onCloseTab(area.id, tabID) },
                 onSplit: { dir in onSplit(area.id, dir) },
                 onClose: { onCloseArea(area.id) }
@@ -27,6 +31,8 @@ struct PaneNode: View {
                 focusedAreaID: focusedAreaID,
                 isActiveProject: isActiveProject,
                 onFocusArea: onFocusArea,
+                onSelectTab: onSelectTab,
+                onCreateTab: onCreateTab,
                 onCloseTab: onCloseTab,
                 onSplit: onSplit,
                 onCloseArea: onCloseArea

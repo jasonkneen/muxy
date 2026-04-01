@@ -22,16 +22,14 @@ struct MuxyCommands: Commands {
             Divider()
 
             Button("Split Right") {
-                guard let projectID = appState.activeProjectID,
-                      let areaID = appState.focusedAreaID[projectID] else { return }
-                appState.splitArea(areaID, direction: .horizontal, projectID: projectID, projectPath: appState.focusedArea(for: projectID)?.projectPath ?? "")
+                guard let projectID = appState.activeProjectID else { return }
+                appState.splitFocusedArea(direction: .horizontal, projectID: projectID)
             }
             .keyboardShortcut("d", modifiers: .command)
 
             Button("Split Down") {
-                guard let projectID = appState.activeProjectID,
-                      let areaID = appState.focusedAreaID[projectID] else { return }
-                appState.splitArea(areaID, direction: .vertical, projectID: projectID, projectPath: appState.focusedArea(for: projectID)?.projectPath ?? "")
+                guard let projectID = appState.activeProjectID else { return }
+                appState.splitFocusedArea(direction: .vertical, projectID: projectID)
             }
             .keyboardShortcut("d", modifiers: [.command, .shift])
 

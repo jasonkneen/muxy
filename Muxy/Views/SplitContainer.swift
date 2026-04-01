@@ -6,6 +6,8 @@ struct SplitContainer: View {
     let focusedAreaID: UUID?
     let isActiveProject: Bool
     let onFocusArea: (UUID) -> Void
+    let onSelectTab: (UUID, UUID) -> Void
+    let onCreateTab: (UUID) -> Void
     let onCloseTab: (UUID, UUID) -> Void
     let onSplit: (UUID, SplitDirection) -> Void
     let onCloseArea: (UUID) -> Void
@@ -55,6 +57,8 @@ struct SplitContainer: View {
             focusedAreaID: focusedAreaID,
             isActiveProject: isActiveProject,
             onFocusArea: onFocusArea,
+            onSelectTab: onSelectTab,
+            onCreateTab: onCreateTab,
             onCloseTab: onCloseTab,
             onSplit: onSplit,
             onCloseArea: onCloseArea

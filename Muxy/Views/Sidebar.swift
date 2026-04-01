@@ -20,10 +20,7 @@ struct Sidebar: View {
                         ProjectItem(
                             project: project,
                             selected: project.id == appState.activeProjectID,
-                            onSelect: {
-                                appState.activeProjectID = project.id
-                                appState.ensureWorkspaceExists(for: project)
-                            },
+                            onSelect: { appState.selectProject(project) },
                             onRemove: {
                                 appState.removeProject(project.id)
                                 projectStore.remove(id: project.id)
@@ -51,8 +48,7 @@ struct Sidebar: View {
             sortOrder: projectStore.projects.count
         )
         projectStore.add(project)
-        appState.activeProjectID = project.id
-        appState.ensureWorkspaceExists(for: project)
+        appState.selectProject(project)
     }
 }
 

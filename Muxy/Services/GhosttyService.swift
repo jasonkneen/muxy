@@ -9,6 +9,7 @@ final class GhosttyService {
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
     private var tickTimer: Timer?
+    private let runtimeEvents: any GhosttyRuntimeEventHandling = GhosttyRuntimeEventAdapter()
 
     private init() {
         initializeGhostty()
@@ -37,53 +38,22 @@ final class GhosttyService {
         rt.userdata = Unmanaged.passUnretained(self).toOpaque()
         rt.supports_selection_clipboard = true
         rt.wakeup_cb = { _ in
-            DispatchQueue.main.async {
-                GhosttyService.shared.tick()
-            }
+            GhosttyService.shared.runtimeEvents.wakeup()
         }
         rt.action_cb = { app, target, action in
-            return GhosttyService.shared.handleAction(target: target, action: action)
+            return GhosttyService.shared.runtimeEvents.action(app: app, target: target, action: action)
         }
         rt.read_clipboard_cb = { userdata, location, state in
-            let pb = NSPasteboard.general
-            let text = pb.string(forType: .string) ?? ""
-            text.withCString { ptr in
-                ghostty_surface_complete_clipboard_request(
-                    GhosttyService.callbackSurface(from: userdata),
-                    ptr, state, false
-                )
-            }
-            return true
+            GhosttyService.shared.runtimeEvents.readClipboard(userdata: userdata, location: location, state: state)
         }
         rt.confirm_read_clipboard_cb = { userdata, content, state, _ in
-            guard let content else { return }
-            ghostty_surface_complete_clipboard_request(
-                GhosttyService.callbackSurface(from: userdata),
-                content, state, true
-            )
+            GhosttyService.shared.runtimeEvents.confirmReadClipboard(userdata: userdata, content: content, state: state)
         }
         rt.write_clipboard_cb = { _, location, content, len, _ in
-            guard let content, len > 0 else { return }
-            let buffer = UnsafeBufferPointer(start: content, count: Int(len))
-            for item in buffer {
-                guard let dataPtr = item.data else { continue }
-                let value = String(cString: dataPtr)
-                if let mimePtr = item.mime {
-                    let mime = String(cString: mimePtr)
-                    if mime.hasPrefix("text/plain") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(value, forType: .string)
-                        return
-                    }
-                }
-            }
+            GhosttyService.shared.runtimeEvents.writeClipboard(location: location, content: content, len: UInt(len))
         }
         rt.close_surface_cb = { userdata, needsConfirm in
-            guard let userdata else { return }
-            let view = Unmanaged<GhosttyTerminalNSView>.fromOpaque(userdata).takeUnretainedValue()
-            DispatchQueue.main.async {
-                view.onProcessExit?()
-            }
+            GhosttyService.shared.runtimeEvents.closeSurface(userdata: userdata, needsConfirm: needsConfirm)
         }
 
         guard let createdApp = ghostty_app_new(&rt, cfg) else {
@@ -96,29 +66,15 @@ final class GhosttyService {
         self.config = cfg
 
         tickTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 120.0, repeats: true) { [weak self] _ in
-            self?.tick()
+            DispatchQueue.main.async {
+                self?.tick()
+            }
         }
         RunLoop.main.add(tickTimer!, forMode: .common)
     }
 
     func tick() {
         guard let app else { return }
-        _ = ghostty_app_tick(app)
-    }
-
-    private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
-        let tag = action.tag
-        switch tag {
-        case GHOSTTY_ACTION_SET_TITLE:
-            return true
-        case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
-            return true
-        default:
-            return false
-        }
-    }
-
-    nonisolated static func callbackSurface(from userdata: UnsafeMutableRawPointer?) -> ghostty_surface_t? {
-        return nil
+        ghostty_app_tick(app)
     }
 }

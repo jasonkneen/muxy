@@ -11,10 +11,24 @@ struct TerminalArea: View {
                 node: root,
                 focusedAreaID: appState.focusedAreaID[project.id],
                 isActiveProject: isActiveProject,
-                onFocusArea: { areaID in appState.focusArea(areaID, projectID: project.id) },
-                onCloseTab: { areaID, tabID in appState.closeTabInArea(tabID, areaID: areaID, projectID: project.id) },
-                onSplit: { areaID, dir in appState.splitArea(areaID, direction: dir, projectID: project.id, projectPath: project.path) },
-                onCloseArea: { areaID in appState.closeArea(areaID, projectID: project.id) }
+                onFocusArea: { areaID in
+                    appState.dispatch(.focusArea(projectID: project.id, areaID: areaID))
+                },
+                onSelectTab: { areaID, tabID in
+                    appState.dispatch(.selectTab(projectID: project.id, areaID: areaID, tabID: tabID))
+                },
+                onCreateTab: { areaID in
+                    appState.dispatch(.createTab(projectID: project.id, areaID: areaID))
+                },
+                onCloseTab: { areaID, tabID in
+                    appState.dispatch(.closeTab(projectID: project.id, areaID: areaID, tabID: tabID))
+                },
+                onSplit: { areaID, dir in
+                    appState.dispatch(.splitArea(projectID: project.id, areaID: areaID, direction: dir, projectPath: project.path))
+                },
+                onCloseArea: { areaID in
+                    appState.dispatch(.closeArea(projectID: project.id, areaID: areaID))
+                }
             )
         }
     }
