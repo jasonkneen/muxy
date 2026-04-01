@@ -12,6 +12,7 @@ struct Sidebar: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 32)
+            .background(WindowDragRepresentable())
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 2) {

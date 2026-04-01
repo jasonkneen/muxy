@@ -29,7 +29,38 @@ struct PaneTabStrip: View {
             .padding(.trailing, 4)
         }
         .frame(height: 32)
-        .background(MuxyTheme.bg)
+        .background(WindowDragRepresentable())
+    }
+}
+
+struct WindowDragRepresentable: NSViewRepresentable {
+    func makeNSView(context: Context) -> WindowDragView { WindowDragView() }
+    func updateNSView(_ nsView: WindowDragView, context: Context) {}
+}
+
+final class WindowDragView: NSView {
+    private var isAtWindowTop: Bool {
+        guard let window else { return false }
+        let frameInWindow = convert(bounds, to: nil)
+        return frameInWindow.maxY >= window.contentView!.bounds.height - 1
+    }
+
+    override public func mouseDown(with event: NSEvent) {
+        guard isAtWindowTop else {
+            super.mouseDown(with: event)
+            return
+        }
+        if event.clickCount == 2 {
+            let action = UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") ?? "Maximize"
+            switch action {
+            case "Minimize":
+                window?.miniaturize(nil)
+            default:
+                window?.zoom(nil)
+            }
+            return
+        }
+        window?.performDrag(with: event)
     }
 }
 

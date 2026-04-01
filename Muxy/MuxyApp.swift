@@ -24,26 +24,10 @@ struct MuxyApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var doubleClickMonitor: Any?
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         _ = GhosttyService.shared
-
-        doubleClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { event in
-            guard event.clickCount == 2, let window = event.window else { return event }
-            let hitView = window.contentView?.hitTest(event.locationInWindow)
-            if hitView is GhosttyTerminalNSView { return event }
-            let action = UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") ?? "Maximize"
-            switch action {
-            case "Minimize":
-                window.miniaturize(nil)
-            default:
-                window.zoom(nil)
-            }
-            return nil
-        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -59,7 +43,7 @@ private struct WindowConfigurator: NSViewRepresentable {
             w.titlebarAppearsTransparent = true
             w.titleVisibility = .hidden
             w.styleMask.insert(.fullSizeContentView)
-            w.isMovableByWindowBackground = true
+            w.isMovableByWindowBackground = false
             w.backgroundColor = MuxyTheme.nsBg
 
             for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
