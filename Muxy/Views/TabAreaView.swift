@@ -14,6 +14,7 @@ struct TabAreaView: View {
             PaneTabStrip(
                 area: area,
                 isFocused: isFocused,
+                onFocus: onFocus,
                 onCloseTab: onCloseTab,
                 onSplit: onSplit,
                 onClose: onClose

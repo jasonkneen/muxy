@@ -3,6 +3,7 @@ import SwiftUI
 struct PaneTabStrip: View {
     let area: TabArea
     let isFocused: Bool
+    let onFocus: () -> Void
     let onCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
     let onClose: () -> Void
@@ -14,7 +15,10 @@ struct PaneTabStrip: View {
                     title: tab.title,
                     active: tab.id == area.activeTabID,
                     paneFocused: isFocused,
-                    onSelect: { area.selectTab(tab.id) },
+                    onSelect: {
+                        onFocus()
+                        area.selectTab(tab.id)
+                    },
                     onClose: { onCloseTab(tab.id) }
                 )
             }
