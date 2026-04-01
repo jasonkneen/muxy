@@ -137,7 +137,7 @@ private struct TabCell: View {
             .overlay(alignment: .bottom) {
                 if active && paneFocused {
                     Rectangle()
-                        .fill(Color.accentColor)
+                        .fill(MuxyTheme.accent)
                         .frame(height: 2)
                 }
             }

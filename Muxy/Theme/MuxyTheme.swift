@@ -12,5 +12,5 @@ enum MuxyTheme {
     @MainActor static var border: Color { Color(nsColor: GhosttyService.shared.foregroundColor.withAlphaComponent(0.12)) }
     @MainActor static var hover: Color { Color(nsColor: GhosttyService.shared.foregroundColor.withAlphaComponent(0.06)) }
 
-    static let accent = Color.accentColor
+    @MainActor static var accent: Color { Color(nsColor: GhosttyService.shared.accentColor) }
 }

@@ -77,6 +77,25 @@ final class GhosttyService {
         configColor("foreground") ?? .white
     }
 
+    var accentColor: NSColor {
+        paletteColor(4) ?? configColor("foreground") ?? .white
+    }
+
+    private func paletteColor(_ index: Int) -> NSColor? {
+        guard let config, index >= 0, index < 256 else { return nil }
+        var palette = ghostty_config_palette_s()
+        guard ghostty_config_get(config, &palette, "palette", 7) else { return nil }
+        let c = withUnsafePointer(to: &palette.colors) {
+            $0.withMemoryRebound(to: ghostty_config_color_s.self, capacity: 256) { $0[index] }
+        }
+        return NSColor(
+            srgbRed: CGFloat(c.r) / 255,
+            green: CGFloat(c.g) / 255,
+            blue: CGFloat(c.b) / 255,
+            alpha: 1
+        )
+    }
+
     private func configColor(_ key: String) -> NSColor? {
         guard let config else { return nil }
         var color = ghostty_config_color_s()
