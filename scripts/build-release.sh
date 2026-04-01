@@ -65,7 +65,7 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 cp "$SPM_BUILD_DIR/Muxy" "$APP_BUNDLE/Contents/MacOS/Muxy"
 
 if [[ -d "$SPM_BUILD_DIR/Muxy_Muxy.bundle" ]]; then
-    cp -R "$SPM_BUILD_DIR/Muxy_Muxy.bundle" "$APP_BUNDLE/Muxy_Muxy.bundle"
+    cp -R "$SPM_BUILD_DIR/Muxy_Muxy.bundle" "$APP_BUNDLE/Contents/Resources/Muxy_Muxy.bundle"
 fi
 
 cp "$PROJECT_ROOT/Muxy/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
