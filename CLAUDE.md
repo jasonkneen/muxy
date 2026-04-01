@@ -68,3 +68,4 @@ See [docs/building-ghostty.md](docs/building-ghostty.md) for full details.
 - Use early returns instead of nested conditionals
 - Don't patch symptoms, fix root causes
 - For every task, Consider how it will impact the architecture and code quality, not just the immediate problem
+- Follow the existing code's pattern but offer refactors if they improve code quality and maintainability.

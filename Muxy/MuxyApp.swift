@@ -38,7 +38,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        setAppIcon()
         _ = GhosttyService.shared
+    }
+
+    @MainActor private func setAppIcon() {
+        guard let url = Bundle.module.url(forResource: "AppIcon", withExtension: "png") else { return }
+        guard let image = NSImage(contentsOf: url) else { return }
+        image.size = NSSize(width: 512, height: 512)
+        NSApp.applicationIconImage = image
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
