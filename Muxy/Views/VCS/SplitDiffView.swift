@@ -5,6 +5,10 @@ struct SplitDiffView: View {
     let filePath: String
     let pairedRows: [SplitDiffPairedRow]
 
+    private var numberColumnWidth: CGFloat {
+        lineNumberWidth(for: maxLineNumber(in: rows))
+    }
+
     init(rows: [DiffDisplayRow], filePath: String) {
         self.rows = rows
         self.filePath = filePath
@@ -73,8 +77,8 @@ struct SplitDiffView: View {
             Text(number.map(String.init) ?? "")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(MuxyTheme.fgDim)
-                .frame(width: 42, alignment: .trailing)
-                .padding(.trailing, 6)
+                .frame(width: numberColumnWidth, alignment: .trailing)
+                .padding(.trailing, 4)
                 .background(.clear)
                 .overlay(alignment: .trailing) {
                     Rectangle().fill(MuxyTheme.border).frame(width: 1)
@@ -82,7 +86,7 @@ struct SplitDiffView: View {
 
             CodeHighlightedText(text: text ?? "", kind: highlightKind)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, 6)
                 .padding(.vertical, 2)
         }
         .background(rowBackground(bgKind, side: isLeft ? .left : .right))

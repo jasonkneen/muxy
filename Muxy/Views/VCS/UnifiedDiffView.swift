@@ -4,6 +4,10 @@ struct UnifiedDiffView: View {
     let rows: [DiffDisplayRow]
     let filePath: String
 
+    private var numberColumnWidth: CGFloat {
+        lineNumberWidth(for: maxLineNumber(in: rows))
+    }
+
     var body: some View {
         LazyVStack(spacing: 0) {
             ForEach(rows) { row in
@@ -16,7 +20,7 @@ struct UnifiedDiffView: View {
                             numberCell(row.newLineNumber)
                             lineContent(row)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 8)
+                                .padding(.horizontal, 6)
                         }
                         .frame(minHeight: 24)
                         .background(rowBackground(row.kind, side: .both))
@@ -31,8 +35,8 @@ struct UnifiedDiffView: View {
         Text(number.map(String.init) ?? "")
             .font(.system(size: 11, design: .monospaced))
             .foregroundStyle(MuxyTheme.fgDim)
-            .frame(width: 42, alignment: .trailing)
-            .padding(.trailing, 6)
+            .frame(width: numberColumnWidth, alignment: .trailing)
+            .padding(.trailing, 4)
             .background(.clear)
             .overlay(alignment: .trailing) {
                 Rectangle().fill(MuxyTheme.border).frame(width: 1)

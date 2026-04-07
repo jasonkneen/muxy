@@ -69,6 +69,17 @@ func hunkLabel(_ raw: String) -> String {
     return after.isEmpty ? raw : after
 }
 
+func lineNumberWidth(for maxLineNumber: Int) -> CGFloat {
+    let digitCount = max(String(maxLineNumber).count, 1)
+    return CGFloat(digitCount) * 7 + 6
+}
+
+func maxLineNumber(in rows: [DiffDisplayRow]) -> Int {
+    rows.reduce(0) { result, row in
+        max(result, row.oldLineNumber ?? 0, row.newLineNumber ?? 0)
+    }
+}
+
 enum DiffBackgroundSide {
     case left
     case right
