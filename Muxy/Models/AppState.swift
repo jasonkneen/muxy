@@ -150,7 +150,8 @@ final class AppState {
 
     func forceCloseTab(_ tabID: UUID, areaID: UUID, projectID: UUID) {
         clearPendingProcessCloseIfMatching(tabID: tabID, areaID: areaID, projectID: projectID)
-        closeTabWithLastCheck(tabID, areaID: areaID, projectID: projectID)
+        unpinTabIfNeeded(tabID, areaID: areaID, projectID: projectID)
+        dispatch(.closeTab(projectID: projectID, areaID: areaID, tabID: tabID))
     }
 
     func confirmCloseRunningTab() {
@@ -179,6 +180,15 @@ final class AppState {
 
     func cancelCloseLastTab() {
         pendingLastTabClose = nil
+    }
+
+    private func unpinTabIfNeeded(_ tabID: UUID, areaID: UUID, projectID: UUID) {
+        guard let root = workspaceRoots[projectID],
+              let area = root.findArea(id: areaID),
+              let tab = area.tabs.first(where: { $0.id == tabID }),
+              tab.isPinned
+        else { return }
+        area.togglePin(tabID)
     }
 
     private func isLastTabInProject(_ tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
