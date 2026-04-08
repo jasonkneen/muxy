@@ -26,6 +26,7 @@ final class GhosttyTerminalNSView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         setupTrackingArea()
+        registerForDraggedTypes([.fileURL])
     }
 
     @available(*, unavailable)
@@ -529,6 +530,33 @@ final class GhosttyTerminalNSView: NSView {
     enum SearchDirection: String {
         case next
         case previous
+    }
+}
+
+extension GhosttyTerminalNSView {
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        guard sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self]) else { return [] }
+        return .copy
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
+              !urls.isEmpty
+        else { return false }
+
+        let paths = urls.map { Self.shellEscapedPath($0.path) }
+        let text = paths.joined(separator: " ")
+        insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+        return true
+    }
+
+    private static func shellEscapedPath(_ path: String) -> String {
+        let needsQuoting = path.contains(" ") || path.contains("(") || path.contains(")")
+            || path.contains("'") || path.contains("\"") || path.contains("\\")
+            || path.contains("&") || path.contains("|") || path.contains(";")
+            || path.contains("$") || path.contains("`") || path.contains("!")
+        guard needsQuoting else { return path }
+        return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 
