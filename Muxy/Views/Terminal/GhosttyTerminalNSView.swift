@@ -20,6 +20,7 @@ final class GhosttyTerminalNSView: NSView {
 
     private var keyTextAccumulator: [String] = []
     private var currentKeyEvent: NSEvent?
+    private var commandSelectorCalled = false
 
     init(workingDirectory: String) {
         self.workingDirectory = workingDirectory
@@ -282,11 +283,14 @@ final class GhosttyTerminalNSView: NSView {
         let hadMarkedText = hasMarkedText()
         currentKeyEvent = event
         keyTextAccumulator = []
+        commandSelectorCalled = false
         interpretKeyEvents([event])
         currentKeyEvent = nil
 
+        let commandWasCalled = commandSelectorCalled
+
         var keyEvent = buildKeyEvent(from: event, action: action)
-        keyEvent.consumed_mods = consumedModsFromFlags(flags)
+        keyEvent.consumed_mods = commandWasCalled ? GHOSTTY_MODS_NONE : consumedModsFromFlags(flags)
         keyEvent.composing = hasMarkedText() || hadMarkedText
 
         if !keyTextAccumulator.isEmpty, !keyEvent.composing {
@@ -311,7 +315,9 @@ final class GhosttyTerminalNSView: NSView {
         }
     }
 
-    override func doCommand(by selector: Selector) {}
+    override func doCommand(by selector: Selector) {
+        commandSelectorCalled = true
+    }
 
     override func insertText(_ insertString: Any) {
         insertText(insertString, replacementRange: NSRange(location: NSNotFound, length: 0))
