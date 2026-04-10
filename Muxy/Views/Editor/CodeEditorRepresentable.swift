@@ -100,7 +100,18 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.textView = textView
         context.coordinator.setScrollObserver(for: scrollView, onLineLayoutChange: onLineLayoutChange)
 
+        textView.undoManager?.removeAllActions()
+
         return scrollView
+    }
+
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+        textView.undoManager?.removeAllActions()
+        if let window = textView.window, window.firstResponder === textView {
+            window.makeFirstResponder(nil)
+        }
+        textView.delegate = nil
     }
 
     private static func claimFirstResponder(textView: NSTextView, attemptsRemaining: Int) {
@@ -144,7 +155,10 @@ struct CodeEditorView: NSViewRepresentable {
         let contentChanged = !coordinator.isUpdating && textView.string != state.content
         if contentChanged {
             coordinator.isUpdating = true
+            textView.undoManager?.disableUndoRegistration()
             textView.string = state.content
+            textView.undoManager?.enableUndoRegistration()
+            textView.undoManager?.removeAllActions()
             coordinator.isUpdating = false
         }
 
