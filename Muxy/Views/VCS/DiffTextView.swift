@@ -51,26 +51,29 @@ final class DiffBackgroundLayoutManager: NSLayoutManager {
     }
 }
 
-@MainActor
-func buildLineBackgrounds(metadata: [DiffLineMetadata], side: DiffBackgroundSide) -> [NSColor?] {
+func buildLineBackgrounds(
+    metadata: [DiffLineMetadata],
+    side: DiffBackgroundSide,
+    theme: DiffRenderTheme
+) -> [NSColor?] {
     metadata.map { meta in
         switch meta.kind {
         case .addition:
             switch side {
             case .left: nil
             case .right,
-                 .both: MuxyTheme.nsDiffAdd.withAlphaComponent(0.16)
+                 .both: theme.additionBackground
             }
         case .deletion:
             switch side {
             case .left,
-                 .both: MuxyTheme.nsDiffRemove.withAlphaComponent(0.16)
+                 .both: theme.deletionBackground
             case .right: nil
             }
         case .hunk:
-            MuxyTheme.nsDiffHunk.withAlphaComponent(0.1)
+            theme.hunkBackground
         case .collapsed:
-            MuxyTheme.nsBg
+            theme.collapsedBackground
         case .context:
             nil
         }

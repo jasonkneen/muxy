@@ -1,6 +1,6 @@
 import Foundation
 
-actor GitRepositoryService {
+struct GitRepositoryService {
     struct PatchAndCompareResult {
         let rows: [DiffDisplayRow]
         let truncated: Bool
@@ -90,8 +90,19 @@ actor GitRepositoryService {
         }
     }
 
+    struct DiffHints {
+        let hasStaged: Bool
+        let hasUnstaged: Bool
+        let isUntrackedOrNew: Bool
+
+        static let unknown = DiffHints(hasStaged: true, hasUnstaged: true, isUntrackedOrNew: false)
+    }
+
     func currentBranch(repoPath: String) async throws -> String {
-        let result = try runGit(repoPath: repoPath, arguments: ["rev-parse", "--abbrev-ref", "HEAD"])
+        let result = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["rev-parse", "--abbrev-ref", "HEAD"]
+        )
         guard result.status == 0 else {
             throw GitError.commandFailed("Failed to get current branch.")
         }
@@ -99,12 +110,12 @@ actor GitRepositoryService {
     }
 
     func isGhInstalled() async -> Bool {
-        resolveExecutable("gh") != nil
+        GitProcessRunner.resolveExecutable("gh") != nil
     }
 
     func pullRequestInfo(repoPath: String, branch: String) async -> PRInfo? {
-        guard let ghPath = resolveExecutable("gh") else { return nil }
-        let result = try? runCommand(
+        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return nil }
+        let result = try? await GitProcessRunner.runCommand(
             executable: ghPath,
             arguments: [
                 "pr", "view", branch,
@@ -208,19 +219,22 @@ actor GitRepositoryService {
     }
 
     func aheadBehind(repoPath: String, branch: String) async -> AheadBehind {
-        let upstreamResult = try? runGit(
+        async let upstreamTask = GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["rev-parse", "--abbrev-ref", "\(branch)@{upstream}"]
         )
-        guard let upstreamResult, upstreamResult.status == 0 else {
-            return AheadBehind(ahead: 0, behind: 0, hasUpstream: false)
-        }
-
-        let countsResult = try? runGit(
+        async let countsTask = GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["rev-list", "--left-right", "--count", "\(branch)...\(branch)@{upstream}"]
         )
-        guard let countsResult, countsResult.status == 0 else {
+
+        let upstreamResult = try? await upstreamTask
+        guard let upstreamResult, upstreamResult.status == 0 else {
+            _ = try? await countsTask
+            return AheadBehind(ahead: 0, behind: 0, hasUpstream: false)
+        }
+
+        guard let countsResult = try? await countsTask, countsResult.status == 0 else {
             return AheadBehind(ahead: 0, behind: 0, hasUpstream: true)
         }
         let parts = countsResult.stdout
@@ -236,7 +250,7 @@ actor GitRepositoryService {
     }
 
     func hasRemoteBranch(repoPath: String, branch: String) async -> Bool {
-        let result = try? runGit(
+        let result = try? await GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["ls-remote", "--heads", "origin", branch]
         )
@@ -245,7 +259,7 @@ actor GitRepositoryService {
     }
 
     func listRemoteBranches(repoPath: String) async throws -> [String] {
-        let result = try runGit(
+        let result = try await GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["ls-remote", "--heads", "origin"]
         )
@@ -266,7 +280,7 @@ actor GitRepositoryService {
     }
 
     func defaultBranch(repoPath: String) async -> String? {
-        let symbolic = try? runGit(
+        let symbolic = try? await GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]
         )
@@ -278,8 +292,8 @@ actor GitRepositoryService {
             if !value.isEmpty { return value }
         }
 
-        if let ghPath = resolveExecutable("gh") {
-            let result = try? runCommand(
+        if let ghPath = GitProcessRunner.resolveExecutable("gh") {
+            let result = try? await GitProcessRunner.runCommand(
                 executable: ghPath,
                 arguments: ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"],
                 workingDirectory: repoPath
@@ -301,7 +315,7 @@ actor GitRepositoryService {
         body: String,
         draft: Bool = false
     ) async throws -> PRInfo {
-        guard let ghPath = resolveExecutable("gh") else {
+        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
             throw PRCreateError.ghNotInstalled
         }
 
@@ -317,7 +331,7 @@ actor GitRepositoryService {
             arguments.append("--draft")
         }
 
-        let createResult = try runCommand(
+        let createResult = try await GitProcessRunner.runCommand(
             executable: ghPath,
             arguments: arguments,
             workingDirectory: repoPath
@@ -349,14 +363,14 @@ actor GitRepositoryService {
         method: PRMergeMethod = .merge,
         deleteBranch: Bool = true
     ) async throws {
-        guard let ghPath = resolveExecutable("gh") else {
+        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
             throw PRCreateError.ghNotInstalled
         }
         var arguments = ["pr", "merge", String(number), method.ghFlag]
         if deleteBranch {
             arguments.append("--delete-branch")
         }
-        let result = try runCommand(
+        let result = try await GitProcessRunner.runCommand(
             executable: ghPath,
             arguments: arguments,
             workingDirectory: repoPath
@@ -372,10 +386,10 @@ actor GitRepositoryService {
     }
 
     func closePullRequest(repoPath: String, number: Int) async throws {
-        guard let ghPath = resolveExecutable("gh") else {
+        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
             throw PRCreateError.ghNotInstalled
         }
-        let result = try runCommand(
+        let result = try await GitProcessRunner.runCommand(
             executable: ghPath,
             arguments: ["pr", "close", String(number)],
             workingDirectory: repoPath
@@ -391,24 +405,37 @@ actor GitRepositoryService {
     }
 
     func changedFiles(repoPath: String, ignoreWhitespace: Bool = false) async throws -> [GitStatusFile] {
-        let result = try runGit(repoPath: repoPath, arguments: ["rev-parse", "--is-inside-work-tree"])
-        guard result.status == 0, result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "true" else {
+        let signpostID = GitSignpost.begin("changedFiles")
+        defer { GitSignpost.end("changedFiles", signpostID) }
+
+        let verifyResult = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["rev-parse", "--is-inside-work-tree"]
+        )
+        guard verifyResult.status == 0,
+              verifyResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
+        else {
             throw GitError.notGitRepository
         }
 
-        let statusResult = try runGit(
+        let wsFlag = ignoreWhitespace ? ["-w"] : [String]()
+
+        async let statusTask = GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["-c", "core.quotepath=false", "status", "--porcelain=1", "-z", "--untracked-files=all"]
         )
-        guard statusResult.status == 0 else {
-            throw GitError.commandFailed(statusResult.stderr.isEmpty ? "Failed to load Git status." : statusResult.stderr)
-        }
-
-        let wsFlag = ignoreWhitespace ? ["-w"] : [String]()
-        let numstatResult = try runGit(
+        async let numstatTask = GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["-c", "core.quotepath=false", "diff", "--numstat", "--no-color", "--no-ext-diff"] + wsFlag
         )
+
+        let statusResult = try await statusTask
+        guard statusResult.status == 0 else {
+            _ = try? await numstatTask
+            throw GitError.commandFailed(statusResult.stderr.isEmpty ? "Failed to load Git status." : statusResult.stderr)
+        }
+
+        let numstatResult = try await numstatTask
         let stats = GitStatusParser.parseNumstat(numstatResult.stdout)
 
         return GitStatusParser.parseStatusPorcelain(statusResult.stdoutData, stats: stats).map { file in
@@ -440,9 +467,93 @@ actor GitRepositoryService {
         repoPath: String,
         filePath: String,
         lineLimit: Int?,
-        ignoreWhitespace: Bool = false
+        ignoreWhitespace: Bool = false,
+        hints: DiffHints = .unknown
     ) async throws -> PatchAndCompareResult {
-        let statusResult = try runGit(
+        let signpostID = GitSignpost.begin("patchAndCompare", filePath)
+        defer { GitSignpost.end("patchAndCompare", signpostID) }
+
+        if hints.isUntrackedOrNew {
+            return try untrackedOrNewFileDiff(repoPath: repoPath, filePath: filePath, lineLimit: lineLimit)
+        }
+
+        if hints.hasStaged == false, hints.hasUnstaged == false {
+            return try await resolveAndDiff(
+                repoPath: repoPath,
+                filePath: filePath,
+                lineLimit: lineLimit,
+                ignoreWhitespace: ignoreWhitespace
+            )
+        }
+
+        let wsFlag = ignoreWhitespace ? ["-w"] : [String]()
+
+        async let stagedTask: GitProcessResult? = hints.hasStaged
+            ? GitProcessRunner.runGit(
+                repoPath: repoPath,
+                arguments: ["-c", "core.quotepath=false", "diff", "--cached", "--no-color", "--no-ext-diff"] + wsFlag + ["--", filePath],
+                lineLimit: lineLimit
+            )
+            : nil
+
+        async let unstagedTask: GitProcessResult? = hints.hasUnstaged
+            ? GitProcessRunner.runGit(
+                repoPath: repoPath,
+                arguments: ["-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff"] + wsFlag + ["--", filePath],
+                lineLimit: lineLimit
+            )
+            : nil
+
+        let stagedResult = try await stagedTask
+        let unstagedResult = try await unstagedTask
+
+        if let stagedResult, stagedResult.status != 0 {
+            throw GitError.commandFailed(stagedResult.stderr.isEmpty ? "Failed to load diff for \(filePath)." : stagedResult.stderr)
+        }
+        if let unstagedResult, unstagedResult.status != 0 {
+            throw GitError.commandFailed(unstagedResult.stderr.isEmpty ? "Failed to load diff for \(filePath)." : unstagedResult.stderr)
+        }
+
+        let stagedOut = stagedResult?.stdout ?? ""
+        let unstagedOut = unstagedResult?.stdout ?? ""
+        let stagedTruncated = stagedResult?.truncated ?? false
+        let unstagedTruncated = unstagedResult?.truncated ?? false
+
+        let combinedPatch: String
+        let combinedTruncated: Bool
+        if !stagedOut.isEmpty, !unstagedOut.isEmpty {
+            combinedPatch = stagedOut + "\n" + unstagedOut
+            combinedTruncated = stagedTruncated || unstagedTruncated
+        } else if !stagedOut.isEmpty {
+            combinedPatch = stagedOut
+            combinedTruncated = stagedTruncated
+        } else {
+            combinedPatch = unstagedOut
+            combinedTruncated = unstagedTruncated
+        }
+
+        return await Self.parsePatchOffMain(combinedPatch, truncated: combinedTruncated)
+    }
+
+    private static func parsePatchOffMain(_ patch: String, truncated: Bool) async -> PatchAndCompareResult {
+        await GitProcessRunner.offMain {
+            let parsed = GitDiffParser.parseRows(patch)
+            return PatchAndCompareResult(
+                rows: GitDiffParser.collapseContextRows(parsed.rows),
+                truncated: truncated,
+                additions: parsed.additions,
+                deletions: parsed.deletions
+            )
+        }
+    }
+
+    private func resolveAndDiff(
+        repoPath: String,
+        filePath: String,
+        lineLimit: Int?,
+        ignoreWhitespace: Bool
+    ) async throws -> PatchAndCompareResult {
+        let statusResult = try await GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["-c", "core.quotepath=false", "status", "--porcelain=1", "-z", "--", filePath]
         )
@@ -454,20 +565,23 @@ actor GitRepositoryService {
 
         let wsFlag = ignoreWhitespace ? ["-w"] : [String]()
 
-        let stagedResult = try runGit(
+        async let stagedTask = GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["-c", "core.quotepath=false", "diff", "--cached", "--no-color", "--no-ext-diff"] + wsFlag + ["--", filePath],
             lineLimit: lineLimit
         )
-        guard stagedResult.status == 0 else {
-            throw GitError.commandFailed(stagedResult.stderr.isEmpty ? "Failed to load diff for \(filePath)." : stagedResult.stderr)
-        }
-
-        let unstagedResult = try runGit(
+        async let unstagedTask = GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff"] + wsFlag + ["--", filePath],
             lineLimit: lineLimit
         )
+
+        let stagedResult = try await stagedTask
+        let unstagedResult = try await unstagedTask
+
+        guard stagedResult.status == 0 else {
+            throw GitError.commandFailed(stagedResult.stderr.isEmpty ? "Failed to load diff for \(filePath)." : stagedResult.stderr)
+        }
         guard unstagedResult.status == 0 else {
             throw GitError.commandFailed(unstagedResult.stderr.isEmpty ? "Failed to load diff for \(filePath)." : unstagedResult.stderr)
         }
@@ -485,13 +599,7 @@ actor GitRepositoryService {
             combinedTruncated = unstagedResult.truncated
         }
 
-        let parsed = GitDiffParser.parseRows(combinedPatch)
-        return PatchAndCompareResult(
-            rows: GitDiffParser.collapseContextRows(parsed.rows),
-            truncated: combinedTruncated,
-            additions: parsed.additions,
-            deletions: parsed.deletions
-        )
+        return await Self.parsePatchOffMain(combinedPatch, truncated: combinedTruncated)
     }
 
     private func untrackedOrNewFileDiff(repoPath: String, filePath: String, lineLimit: Int?) throws -> PatchAndCompareResult {
@@ -545,14 +653,14 @@ actor GitRepositoryService {
         for path in paths {
             try validatePath(repoPath: repoPath, relativePath: path)
         }
-        let result = try runGit(repoPath: repoPath, arguments: ["add", "--"] + paths)
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["add", "--"] + paths)
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to stage files." : result.stderr)
         }
     }
 
     func stageAll(repoPath: String) async throws {
-        let result = try runGit(repoPath: repoPath, arguments: ["add", "-A"])
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["add", "-A"])
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to stage all files." : result.stderr)
         }
@@ -562,14 +670,14 @@ actor GitRepositoryService {
         for path in paths {
             try validatePath(repoPath: repoPath, relativePath: path)
         }
-        let result = try runGit(repoPath: repoPath, arguments: ["reset", "HEAD", "--"] + paths)
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["reset", "HEAD", "--"] + paths)
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to unstage files." : result.stderr)
         }
     }
 
     func unstageAll(repoPath: String) async throws {
-        let result = try runGit(repoPath: repoPath, arguments: ["reset", "HEAD"])
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["reset", "HEAD"])
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to unstage all files." : result.stderr)
         }
@@ -581,7 +689,7 @@ actor GitRepositoryService {
         }
 
         if !paths.isEmpty {
-            let result = try runGit(repoPath: repoPath, arguments: ["checkout", "--"] + paths)
+            let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["checkout", "--"] + paths)
             guard result.status == 0 else {
                 throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to discard changes." : result.stderr)
             }
@@ -594,14 +702,14 @@ actor GitRepositoryService {
     }
 
     func discardAll(repoPath: String) async throws {
-        let checkoutResult = try runGit(repoPath: repoPath, arguments: ["checkout", "--", "."])
+        let checkoutResult = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["checkout", "--", "."])
         guard checkoutResult.status == 0 else {
             throw GitError.commandFailed(
                 checkoutResult.stderr.isEmpty ? "Failed to discard tracked changes." : checkoutResult.stderr
             )
         }
 
-        let cleanResult = try runGit(repoPath: repoPath, arguments: ["clean", "-fd"])
+        let cleanResult = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["clean", "-fd"])
         guard cleanResult.status == 0 else {
             throw GitError.commandFailed(
                 cleanResult.stderr.isEmpty ? "Failed to clean untracked files." : cleanResult.stderr
@@ -610,18 +718,18 @@ actor GitRepositoryService {
     }
 
     func commit(repoPath: String, message: String) async throws -> String {
-        let result = try runGit(repoPath: repoPath, arguments: ["commit", "-m", message])
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["commit", "-m", message])
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to commit." : result.stderr)
         }
 
-        let hashResult = try runGit(repoPath: repoPath, arguments: ["rev-parse", "--short", "HEAD"])
+        let hashResult = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["rev-parse", "--short", "HEAD"])
         guard hashResult.status == 0 else { return "" }
         return hashResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func push(repoPath: String) async throws {
-        let result = try runGit(repoPath: repoPath, arguments: ["push"])
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["push"])
         guard result.status == 0 else {
             if result.stderr.contains("has no upstream branch") {
                 throw GitError.noUpstreamBranch
@@ -631,21 +739,21 @@ actor GitRepositoryService {
     }
 
     func pushSetUpstream(repoPath: String, branch: String) async throws {
-        let result = try runGit(repoPath: repoPath, arguments: ["push", "--set-upstream", "origin", branch])
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["push", "--set-upstream", "origin", branch])
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to push." : result.stderr)
         }
     }
 
     func pull(repoPath: String) async throws {
-        let result = try runGit(repoPath: repoPath, arguments: ["pull"])
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["pull"])
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to pull." : result.stderr)
         }
     }
 
     func listBranches(repoPath: String) async throws -> [String] {
-        let result = try runGit(
+        let result = try await GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["branch", "--list", "--format=%(refname:short)"]
         )
@@ -667,7 +775,7 @@ actor GitRepositoryService {
         else {
             throw GitError.commandFailed("Invalid branch name.")
         }
-        let result = try runGit(repoPath: repoPath, arguments: ["switch", branch])
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["switch", branch])
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to switch branch." : result.stderr)
         }
@@ -681,7 +789,7 @@ actor GitRepositoryService {
         else {
             throw GitError.commandFailed("Invalid branch name.")
         }
-        let result = try runGit(repoPath: repoPath, arguments: ["switch", "-c", trimmedName])
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["switch", "-c", trimmedName])
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to create branch." : result.stderr)
         }
@@ -695,7 +803,7 @@ actor GitRepositoryService {
     ].joined(separator: commitFieldSeparator) + commitRecordSeparator
 
     func commitLog(repoPath: String, maxCount: Int = 100, skip: Int = 0) async throws -> [GitCommit] {
-        let result = try runGit(
+        let result = try await GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: [
                 "log",
@@ -708,17 +816,17 @@ actor GitRepositoryService {
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to load commit history." : result.stderr)
         }
-        return parseCommitLog(result.stdout)
+        return Self.parseCommitLog(result.stdout)
     }
 
-    private func parseCommitLog(_ raw: String) -> [GitCommit] {
-        let records = raw.split(separator: Character(Self.commitRecordSeparator), omittingEmptySubsequences: true)
+    private static func parseCommitLog(_ raw: String) -> [GitCommit] {
+        let records = raw.split(separator: Character(commitRecordSeparator), omittingEmptySubsequences: true)
         let dateFormatter = ISO8601DateFormatter()
         dateFormatter.formatOptions = [.withInternetDateTime]
 
         return records.compactMap { record in
             let fields = record.trimmingCharacters(in: .whitespacesAndNewlines)
-                .split(separator: Character(Self.commitFieldSeparator), maxSplits: 6, omittingEmptySubsequences: false)
+                .split(separator: Character(commitFieldSeparator), maxSplits: 6, omittingEmptySubsequences: false)
             guard fields.count >= 7 else { return nil }
 
             let hash = String(fields[0])
@@ -730,7 +838,7 @@ actor GitRepositoryService {
             let parentsRaw = String(fields[6])
 
             let date = dateFormatter.date(from: dateString) ?? Date.distantPast
-            let refs = Self.parseRefs(refsRaw)
+            let refs = parseRefs(refsRaw)
             let parents = parentsRaw.split(separator: " ").map(String.init)
 
             return GitCommit(
@@ -780,7 +888,7 @@ actor GitRepositoryService {
 
     func cherryPick(repoPath: String, hash: String) async throws {
         try validateHash(hash)
-        let result = try runGit(repoPath: repoPath, arguments: ["cherry-pick", hash])
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["cherry-pick", hash])
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to cherry-pick." : result.stderr)
         }
@@ -795,7 +903,7 @@ actor GitRepositoryService {
             throw GitError.commandFailed("Invalid branch name.")
         }
         try validateHash(startPoint)
-        let result = try runGit(repoPath: repoPath, arguments: ["branch", "--", trimmedName, startPoint])
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["branch", "--", trimmedName, startPoint])
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to create branch." : result.stderr)
         }
@@ -813,7 +921,7 @@ actor GitRepositoryService {
             throw GitError.commandFailed("Invalid tag name.")
         }
         try validateHash(hash)
-        let result = try runGit(repoPath: repoPath, arguments: ["tag", "--", trimmedName, hash])
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["tag", "--", trimmedName, hash])
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to create tag." : result.stderr)
         }
@@ -821,7 +929,7 @@ actor GitRepositoryService {
 
     func checkoutDetached(repoPath: String, hash: String) async throws {
         try validateHash(hash)
-        let result = try runGit(repoPath: repoPath, arguments: ["checkout", "--detach", hash])
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["checkout", "--detach", hash])
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to checkout." : result.stderr)
         }
@@ -844,113 +952,6 @@ actor GitRepositoryService {
         let resolvedFull = (fullPath as NSString).standardizingPath
         guard resolvedFull.hasPrefix(resolvedRepo + "/") else {
             throw GitError.commandFailed("File path is outside the repository.")
-        }
-    }
-
-    private struct GitRunResult {
-        let status: Int32
-        let stdout: String
-        let stdoutData: Data
-        let stderr: String
-        let truncated: Bool
-    }
-
-    nonisolated private func runGit(repoPath: String, arguments: [String], lineLimit: Int? = nil) throws -> GitRunResult {
-        let args = ["git", "-C", repoPath] + arguments
-        return try runGitSync(arguments: args, lineLimit: lineLimit)
-    }
-
-    private static let searchPaths = [
-        "/opt/homebrew/bin",
-        "/usr/local/bin",
-        "/usr/bin",
-        "/bin",
-        "/usr/sbin",
-        "/sbin",
-    ]
-
-    nonisolated private func resolveExecutable(_ name: String) -> String? {
-        for directory in Self.searchPaths {
-            let path = "\(directory)/\(name)"
-            if FileManager.default.isExecutableFile(atPath: path) {
-                return path
-            }
-        }
-        return nil
-    }
-
-    nonisolated private func runCommand(
-        executable: String,
-        arguments: [String],
-        workingDirectory: String
-    ) throws -> GitRunResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        try process.run()
-
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-        return GitRunResult(status: process.terminationStatus, stdout: stdout, stdoutData: stdoutData, stderr: stderr, truncated: false)
-    }
-
-    nonisolated private func runGitSync(arguments: [String], lineLimit: Int?) throws -> GitRunResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = arguments
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        try process.run()
-
-        let stdoutData: Data = if let lineLimit {
-            try readWithLineLimit(handle: stdoutPipe.fileHandleForReading, process: process, lineLimit: lineLimit)
-        } else {
-            stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        }
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-        let truncated = process.terminationReason == .uncaughtSignal
-        return GitRunResult(status: process.terminationStatus, stdout: stdout, stdoutData: stdoutData, stderr: stderr, truncated: truncated)
-    }
-
-    nonisolated private func readWithLineLimit(handle: FileHandle, process: Process, lineLimit: Int) throws -> Data {
-        var collected = Data()
-        var currentLineCount = 0
-        let chunkSize = 65536
-
-        while true {
-            let chunk = try handle.read(upToCount: chunkSize) ?? Data()
-            if chunk.isEmpty {
-                return collected
-            }
-
-            collected.append(chunk)
-            currentLineCount += chunk.reduce(into: 0) { count, byte in
-                if byte == 0x0A { count += 1 }
-            }
-
-            if currentLineCount >= lineLimit {
-                process.terminate()
-                return collected
-            }
         }
     }
 }

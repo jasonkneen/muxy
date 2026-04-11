@@ -38,7 +38,7 @@ final class GitDirectoryWatcher: @unchecked Sendable {
             &context,
             paths,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-            1.5,
+            0.3,
             FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes)
         )
         else { return nil }
@@ -63,6 +63,6 @@ final class GitDirectoryWatcher: @unchecked Sendable {
             self?.handler?()
         }
         debounceWork = work
-        queue.asyncAfter(deadline: .now() + 1.0, execute: work)
+        queue.asyncAfter(deadline: .now() + 0.3, execute: work)
     }
 }

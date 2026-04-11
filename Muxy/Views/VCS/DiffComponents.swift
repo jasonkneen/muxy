@@ -51,46 +51,59 @@ enum DiffBackgroundSide {
     case both
 }
 
-@MainActor
-final class DiffHighlightCache {
-    static let shared = DiffHighlightCache()
+struct DiffHighlightRule: @unchecked Sendable {
+    let regex: NSRegularExpression
+    let color: NSColor
+}
 
-    struct Rule {
-        let regex: NSRegularExpression
-        let color: @MainActor () -> NSColor
+struct DiffRenderTheme: @unchecked Sendable {
+    let rules: [DiffHighlightRule]
+    let additionColor: NSColor
+    let deletionColor: NSColor
+    let defaultColor: NSColor
+    let additionBackground: NSColor
+    let deletionBackground: NSColor
+    let hunkBackground: NSColor
+    let collapsedBackground: NSColor
+    let font: NSFont
+
+    @MainActor
+    static func current() -> DiffRenderTheme {
+        DiffRenderTheme(
+            rules: Self.buildRules(),
+            additionColor: MuxyTheme.nsDiffAdd,
+            deletionColor: MuxyTheme.nsDiffRemove,
+            defaultColor: GhosttyService.shared.foregroundColor,
+            additionBackground: MuxyTheme.nsDiffAdd.withAlphaComponent(0.16),
+            deletionBackground: MuxyTheme.nsDiffRemove.withAlphaComponent(0.16),
+            hunkBackground: MuxyTheme.nsDiffHunk.withAlphaComponent(0.1),
+            collapsedBackground: MuxyTheme.nsBg,
+            font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        )
     }
-
-    let rules: [Rule]
-
-    private init() {
-        rules = Self.buildRules()
-    }
-
-    func invalidate() {}
 
     private struct RuleDefinition {
         let pattern: String
-        let color: @MainActor () -> NSColor
+        let color: NSColor
         let options: NSRegularExpression.Options
     }
 
-    private static func buildRules() -> [Rule] {
-        var result: [Rule] = []
-
+    @MainActor
+    private static func buildRules() -> [DiffHighlightRule] {
         let definitions: [RuleDefinition] = [
-            RuleDefinition(pattern: #"'(?:\\.|[^'\\])*'"#, color: { MuxyTheme.nsDiffString }, options: []),
-            RuleDefinition(pattern: #""(?:\\.|[^"\\])*""#, color: { MuxyTheme.nsDiffString }, options: []),
-            RuleDefinition(pattern: #"`(?:\\.|[^`\\])*`"#, color: { MuxyTheme.nsDiffString }, options: []),
-            RuleDefinition(pattern: #"\b\d+(?:\.\d+)?\b"#, color: { MuxyTheme.nsDiffNumber }, options: []),
-            RuleDefinition(pattern: #"//.*$"#, color: { MuxyTheme.nsDiffComment }, options: [.anchorsMatchLines]),
+            RuleDefinition(pattern: #"'(?:\\.|[^'\\])*'"#, color: MuxyTheme.nsDiffString, options: []),
+            RuleDefinition(pattern: #""(?:\\.|[^"\\])*""#, color: MuxyTheme.nsDiffString, options: []),
+            RuleDefinition(pattern: #"`(?:\\.|[^`\\])*`"#, color: MuxyTheme.nsDiffString, options: []),
+            RuleDefinition(pattern: #"\b\d+(?:\.\d+)?\b"#, color: MuxyTheme.nsDiffNumber, options: []),
+            RuleDefinition(pattern: #"//.*$"#, color: MuxyTheme.nsDiffComment, options: [.anchorsMatchLines]),
         ]
 
+        var result: [DiffHighlightRule] = []
         for definition in definitions {
             guard let regex = try? NSRegularExpression(pattern: definition.pattern, options: definition.options)
             else { continue }
-            result.append(Rule(regex: regex, color: definition.color))
+            result.append(DiffHighlightRule(regex: regex, color: definition.color))
         }
-
         return result
     }
 }

@@ -36,7 +36,9 @@ Muxy/
     GhosttyService.swift      Singleton managing ghostty_app_t lifecycle
     GhosttyRuntimeEventAdapter.swift  C callback bridge from libghostty
     Git/
-      GitRepositoryService.swift  Git command execution (actor)
+      GitRepositoryService.swift  Git command execution (Sendable struct; dispatches via GitProcessRunner)
+      GitProcessRunner.swift      Concurrent Process dispatcher for git/gh, unblocks main thread
+      GitSignpost.swift           os_signpost helpers for instrumenting git/gh calls
       GitWorktreeService.swift    git worktree list/add/remove (actor)
       GitDiffParser.swift         Diff patch parsing, context collapsing
       GitStatusParser.swift       Porcelain + numstat output parsing

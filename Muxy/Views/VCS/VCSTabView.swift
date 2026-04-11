@@ -843,8 +843,6 @@ struct PRPopover: View {
     let onOpenInBrowser: () -> Void
     let onRefresh: () -> Void
 
-    private let autoRefreshTimer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
@@ -951,9 +949,26 @@ struct PRPopover: View {
         }
         .padding(12)
         .frame(width: 260)
-        .onReceive(autoRefreshTimer) { _ in
-            guard info.state == .open, !state.isMergingPullRequest, !state.isClosingPullRequest else { return }
+        .task(id: info.number) {
+            await pollLoop()
+        }
+    }
+
+    private func pollLoop() async {
+        var intervalSeconds: UInt64 = 5
+        let maxIntervalSeconds: UInt64 = 60
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(nanoseconds: intervalSeconds * 1_000_000_000)
+            } catch {
+                return
+            }
+            guard state.pullRequestInfo?.state == .open,
+                  !state.isMergingPullRequest,
+                  !state.isClosingPullRequest
+            else { return }
             onRefresh()
+            intervalSeconds = min(intervalSeconds * 2, maxIntervalSeconds)
         }
     }
 
@@ -1211,7 +1226,7 @@ private struct SectionSplitLayout: View {
             VStack(spacing: 0) {
                 sectionHeader(for: .staged, collapsed: false)
                 ScrollView {
-                    VStack(spacing: 0) {
+                    LazyVStack(spacing: 0) {
                         ForEach(state.stagedFiles) { file in
                             fileSection(file, isStaged: true)
                         }
@@ -1231,7 +1246,7 @@ private struct SectionSplitLayout: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollView {
-                        VStack(spacing: 0) {
+                        LazyVStack(spacing: 0) {
                             ForEach(state.unstagedFiles) { file in
                                 fileSection(file, isStaged: false)
                             }
