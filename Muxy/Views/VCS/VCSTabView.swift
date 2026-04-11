@@ -313,7 +313,8 @@ struct VCSTabView: View {
         let project = owningProject
         let worktree = activeWorktreeForTab
         let defaultBranch = state.defaultBranch
-        state.mergePullRequest { _, mergedBranch in
+        let isWorktreeMerge = worktree.map { !$0.isPrimary } ?? false
+        state.mergePullRequest(deleteBranch: !isWorktreeMerge) { _, mergedBranch in
             ToastState.shared.show("Merged PR #\(prInfo.number)")
             Task { @MainActor in
                 await cleanupAfterMerge(
@@ -366,7 +367,7 @@ struct VCSTabView: View {
         defaultBranch: String?
     ) async {
         if let project, let worktree, !worktree.isPrimary {
-            removeWorktreeAfterMerge(project: project, worktree: worktree)
+            removeWorktreeAfterMerge(project: project, worktree: worktree, mergedBranch: mergedBranch)
             return
         }
 
@@ -375,7 +376,7 @@ struct VCSTabView: View {
         }
     }
 
-    private func removeWorktreeAfterMerge(project: Project, worktree: Worktree) {
+    private func removeWorktreeAfterMerge(project: Project, worktree: Worktree, mergedBranch: String) {
         let repoPath = project.path
         let remaining = worktreeStore.list(for: project.id).filter { $0.id != worktree.id }
         let replacement = remaining.first(where: { $0.isPrimary }) ?? remaining.first
@@ -389,6 +390,10 @@ struct VCSTabView: View {
             await WorktreeStore.cleanupOnDisk(
                 worktree: worktree,
                 repoPath: repoPath
+            )
+            try? await GitRepositoryService().deleteRemoteBranch(
+                repoPath: repoPath,
+                branch: mergedBranch
             )
         }
     }

@@ -882,6 +882,7 @@ final class VCSTabState {
 
     func mergePullRequest(
         method: GitRepositoryService.PRMergeMethod = .merge,
+        deleteBranch: Bool = true,
         onSuccess: @escaping (GitRepositoryService.PRInfo, String) -> Void
     ) {
         guard let info = pullRequestInfo, !isMergingPullRequest else { return }
@@ -891,7 +892,12 @@ final class VCSTabState {
             guard let self else { return }
             defer { isMergingPullRequest = false }
             do {
-                try await git.mergePullRequest(repoPath: projectPath, number: info.number, method: method)
+                try await git.mergePullRequest(
+                    repoPath: projectPath,
+                    number: info.number,
+                    method: method,
+                    deleteBranch: deleteBranch
+                )
                 guard !Task.isCancelled else { return }
                 pullRequestInfo = nil
                 onSuccess(info, branch)

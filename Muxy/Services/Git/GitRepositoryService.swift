@@ -385,6 +385,18 @@ struct GitRepositoryService {
         }
     }
 
+    func deleteRemoteBranch(repoPath: String, branch: String, remote: String = "origin") async throws {
+        let result = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["push", remote, "--delete", branch]
+        )
+        guard result.status == 0 else {
+            throw GitError.commandFailed(
+                result.stderr.isEmpty ? "Failed to delete remote branch \(branch)." : result.stderr
+            )
+        }
+    }
+
     func closePullRequest(repoPath: String, number: Int) async throws {
         guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
             throw PRCreateError.ghNotInstalled
