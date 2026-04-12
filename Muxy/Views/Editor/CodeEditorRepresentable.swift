@@ -267,25 +267,7 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         coordinator.tabSize = editorSettings.tabSize
-
-        let syntaxToggleChanged = coordinator.lastSyntaxHighlighting != editorSettings.syntaxHighlighting
-        if syntaxToggleChanged {
-            coordinator.lastSyntaxHighlighting = editorSettings.syntaxHighlighting
-        }
-
-        let lineHighlightToggleChanged = coordinator.lastCurrentLineHighlight != editorSettings.currentLineHighlight
-        if lineHighlightToggleChanged {
-            coordinator.lastCurrentLineHighlight = editorSettings.currentLineHighlight
-            coordinator.applyCurrentLineHighlightToggle()
-        }
-
-        let bracketToggleChanged = coordinator.lastBracketMatching != editorSettings.bracketMatching
-        if bracketToggleChanged {
-            coordinator.lastBracketMatching = editorSettings.bracketMatching
-            if !editorSettings.bracketMatching {
-                coordinator.hideBracketHighlightsPublic()
-            }
-        }
+        let syntaxToggleChanged = coordinator.applyFeatureToggleChanges(editorSettings: editorSettings)
 
         if editorSettings.syntaxHighlighting {
             if contentChanged {
@@ -306,6 +288,10 @@ struct CodeEditorView: NSViewRepresentable {
             }
         } else if syntaxToggleChanged {
             coordinator.stripHighlighting()
+        }
+
+        if themeChanged {
+            coordinator.lastThemeVersion = themeVersion
         }
 
         updateSearch(coordinator: coordinator)
@@ -363,29 +349,18 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         coordinator.tabSize = editorSettings.tabSize
+        let syntaxToggleChanged = coordinator.applyFeatureToggleChanges(editorSettings: editorSettings)
 
-        let syntaxToggleChanged = coordinator.lastSyntaxHighlighting != editorSettings.syntaxHighlighting
         if syntaxToggleChanged {
-            coordinator.lastSyntaxHighlighting = editorSettings.syntaxHighlighting
             coordinator.refreshViewport(force: true)
-        }
-
-        let lineHighlightToggleChanged = coordinator.lastCurrentLineHighlight != editorSettings.currentLineHighlight
-        if lineHighlightToggleChanged {
-            coordinator.lastCurrentLineHighlight = editorSettings.currentLineHighlight
-            coordinator.applyCurrentLineHighlightToggle()
-        }
-
-        let bracketToggleChanged = coordinator.lastBracketMatching != editorSettings.bracketMatching
-        if bracketToggleChanged {
-            coordinator.lastBracketMatching = editorSettings.bracketMatching
-            if !editorSettings.bracketMatching {
-                coordinator.hideBracketHighlightsPublic()
-            }
         }
 
         if themeChanged, !fontChanged, !syntaxToggleChanged {
             coordinator.refreshViewport(force: true)
+        }
+
+        if themeChanged {
+            coordinator.lastThemeVersion = themeVersion
         }
 
         updateSearchViewport(coordinator: coordinator)
@@ -398,17 +373,14 @@ struct CodeEditorView: NSViewRepresentable {
     // MARK: - Shared helpers
 
     private func applyThemeAndFont(textView: NSTextView, coordinator: Coordinator) {
+        let fgColor = GhosttyService.shared.foregroundColor
         textView.backgroundColor = GhosttyService.shared.backgroundColor
-        textView.insertionPointColor = GhosttyService.shared.foregroundColor
-
-        let themeChanged = coordinator.lastThemeVersion != themeVersion
-        if themeChanged {
-            coordinator.lastThemeVersion = themeVersion
-        }
+        textView.insertionPointColor = fgColor
+        textView.textColor = fgColor
+        textView.typingAttributes[.foregroundColor] = fgColor
 
         let font = editorSettings.resolvedFont
-        let fontChanged = textView.font != font
-        if fontChanged {
+        if textView.font != font {
             textView.font = font
             textView.typingAttributes[.font] = font
         }
@@ -523,12 +495,13 @@ struct CodeEditorView: NSViewRepresentable {
         var wasIncrementalLoading = false
         var lastHighlightedRange: NSRange = .init(location: 0, length: 0)
         private static let highlightBuffer = 2000
+        private static let initialViewportLineLimit = 1100
         var tabSize = 4
         var onLineLayoutChange: ([LineLayoutInfo]) -> Void = { _ in }
         var onTotalLineCountChange: (Int) -> Void = { _ in }
         private weak var observedContentView: NSClipView?
         private weak var observedTextView: NSTextView?
-        var lineStartOffsets: [Int] = [0]
+        private(set) var lineStartOffsets: [Int] = [0]
         private var pendingEditRange: NSRange?
         private var pendingEditReplacement = ""
         private var hasPendingEdit = false
@@ -538,6 +511,8 @@ struct CodeEditorView: NSViewRepresentable {
         private var pendingHighlightEditLocation: Int?
         private static let highlightDebounceDelay: TimeInterval = 0.15
         private static let highlightEditLineRadius = 3
+        private var highlightGeneration = 0
+        private var activeHighlightTask: Task<Void, Never>?
         private let lineHighlightView: NSView = {
             let view = NSView()
             view.wantsLayer = true
@@ -570,6 +545,30 @@ struct CodeEditorView: NSViewRepresentable {
             NotificationCenter.default.removeObserver(self)
         }
 
+        @discardableResult
+        func applyFeatureToggleChanges(editorSettings: EditorSettings) -> Bool {
+            let syntaxToggleChanged = lastSyntaxHighlighting != editorSettings.syntaxHighlighting
+            if syntaxToggleChanged {
+                lastSyntaxHighlighting = editorSettings.syntaxHighlighting
+            }
+
+            let lineHighlightToggleChanged = lastCurrentLineHighlight != editorSettings.currentLineHighlight
+            if lineHighlightToggleChanged {
+                lastCurrentLineHighlight = editorSettings.currentLineHighlight
+                applyCurrentLineHighlightToggle()
+            }
+
+            let bracketToggleChanged = lastBracketMatching != editorSettings.bracketMatching
+            if bracketToggleChanged {
+                lastBracketMatching = editorSettings.bracketMatching
+                if !editorSettings.bracketMatching {
+                    hideBracketHighlights()
+                }
+            }
+
+            return syntaxToggleChanged
+        }
+
         // MARK: - Viewport Mode Setup
 
         func enterViewportMode(scrollView: NSScrollView) {
@@ -599,7 +598,7 @@ struct CodeEditorView: NSViewRepresentable {
             textView.frame = NSRect(
                 x: 0, y: 0,
                 width: scrollView.contentSize.width,
-                height: viewport.estimatedLineHeight * CGFloat(min(1100, store.lineCount))
+                height: viewport.estimatedLineHeight * CGFloat(min(Self.initialViewportLineLimit, store.lineCount))
             )
 
             state.registerContentProvider(nil)
@@ -631,16 +630,10 @@ struct CodeEditorView: NSViewRepresentable {
             textView.undoManager?.disableUndoRegistration()
             textView.string = text
             let font = editorSettings.resolvedFont
-            let fgColor = GhosttyService.shared.foregroundColor
             if let storage = textView.textStorage, storage.length > 0 {
                 let fullRange = NSRange(location: 0, length: storage.length)
                 storage.beginEditing()
                 storage.addAttribute(.font, value: font, range: fullRange)
-                storage.addAttribute(.foregroundColor, value: fgColor, range: fullRange)
-                if editorSettings.syntaxHighlighting {
-                    SyntaxHighlightExtension(fileExtension: state.fileExtension)
-                        .applyTextAttributes(to: storage, fullRange: fullRange)
-                }
                 storage.endEditing()
             }
             textView.undoManager?.enableUndoRegistration()
@@ -656,6 +649,23 @@ struct CodeEditorView: NSViewRepresentable {
             isUpdating = false
 
             rebuildLineStartOffsetsForViewport()
+
+            if editorSettings.syntaxHighlighting {
+                highlightViewportAsync(text: text)
+            }
+        }
+
+        private func highlightViewportAsync(text: String) {
+            let fullRange = NSRange(location: 0, length: (text as NSString).length)
+            guard fullRange.length > 0 else { return }
+            let generation = nextHighlightGeneration()
+            let highlighter = SyntaxHighlightExtension(fileExtension: state.fileExtension)
+
+            activeHighlightTask = Task { [weak self] in
+                let result = await highlighter.computeHighlightsAsync(text: text, range: fullRange)
+                guard let self, self.highlightGeneration == generation else { return }
+                self.applyHighlightResult(result, range: fullRange)
+            }
         }
 
         func rebuildLineStartOffsetsForViewport() {
@@ -721,7 +731,7 @@ struct CodeEditorView: NSViewRepresentable {
             let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: clampedRect, in: textContainer)
             let visibleCharRange = layoutManager.characterRange(forGlyphRange: visibleGlyphRange, actualGlyphRange: nil)
 
-            var localLine = localLineNumber(atCharacterLocation: visibleCharRange.location)
+            var localLine = lineNumber(atCharacterLocation: visibleCharRange.location)
             var globalLine = viewport.backingStoreLine(forViewportLine: localLine - 1)
 
             var layouts: [LineLayoutInfo] = []
@@ -818,11 +828,18 @@ struct CodeEditorView: NSViewRepresentable {
 
         func replaceAllViewport(with replacement: String, needle: String, caseSensitive: Bool, useRegex: Bool) {
             guard let store = state.backingStore, !needle.isEmpty, !viewportSearchMatches.isEmpty else { return }
-            for match in viewportSearchMatches.reversed() {
-                let line = store.line(at: match.lineIndex)
-                let nsLine = line as NSString
-                let newLine = nsLine.replacingCharacters(in: match.range, with: replacement)
-                _ = store.replaceLines(in: match.lineIndex ..< match.lineIndex + 1, with: [newLine])
+            var grouped: [Int: [NSRange]] = [:]
+            for match in viewportSearchMatches {
+                grouped[match.lineIndex, default: []].append(match.range)
+            }
+            for lineIndex in grouped.keys.sorted().reversed() {
+                guard let lineRanges = grouped[lineIndex] else { continue }
+                let ranges = lineRanges.sorted { $0.location > $1.location }
+                var nsLine = store.line(at: lineIndex) as NSString
+                for range in ranges {
+                    nsLine = nsLine.replacingCharacters(in: range, with: replacement) as NSString
+                }
+                _ = store.replaceLines(in: lineIndex ..< lineIndex + 1, with: [nsLine as String])
             }
             state.backingStoreVersion += 1
             state.markModified()
@@ -1157,7 +1174,7 @@ struct CodeEditorView: NSViewRepresentable {
             let loc = min(range.location, content.length)
 
             if isViewportMode {
-                let localLine = localLineNumber(atCharacterLocation: loc)
+                let localLine = lineNumber(atCharacterLocation: loc)
                 let globalLine = viewportState?.backingStoreLine(forViewportLine: localLine - 1) ?? localLine
                 state.cursorLine = globalLine + 1
                 let localLineStart = lineStartOffsets[max(0, min(localLine - 1, lineStartOffsets.count - 1))]
@@ -1213,11 +1230,7 @@ struct CodeEditorView: NSViewRepresentable {
             highlightBracket(at: match.second, view: bracketHighlightViews[1])
         }
 
-        func hideBracketHighlightsPublic() {
-            hideBracketHighlights()
-        }
-
-        private func hideBracketHighlights() {
+        func hideBracketHighlights() {
             for view in bracketHighlightViews {
                 view.isHidden = true
             }
@@ -1351,42 +1364,41 @@ struct CodeEditorView: NSViewRepresentable {
 
         // MARK: - Syntax Highlighting (direct mode)
 
+        private func nextHighlightGeneration() -> Int {
+            highlightGeneration += 1
+            activeHighlightTask?.cancel()
+            activeHighlightTask = nil
+            return highlightGeneration
+        }
+
         func applyHighlighting() {
             guard let textView, let storage = textView.textStorage else { return }
             guard storage.length > 0 else { return }
-            let scrollPos = textView.enclosingScrollView?.contentView.bounds.origin
             let fullRange = NSRange(location: 0, length: storage.length)
-            let font = editorSettings.resolvedFont
-            textView.undoManager?.disableUndoRegistration()
-            storage.beginEditing()
-            storage.addAttribute(.font, value: font, range: fullRange)
-            storage.addAttribute(.foregroundColor, value: GhosttyService.shared.foregroundColor, range: fullRange)
-            SyntaxHighlightExtension(fileExtension: state.fileExtension)
-                .applyTextAttributes(to: storage, fullRange: fullRange)
-            storage.endEditing()
-            textView.undoManager?.enableUndoRegistration()
-            if let scrollPos {
-                textView.enclosingScrollView?.contentView.setBoundsOrigin(scrollPos)
+            let text = storage.string
+            let scrollPos = textView.enclosingScrollView?.contentView.bounds.origin
+            let generation = nextHighlightGeneration()
+            let highlighter = SyntaxHighlightExtension(fileExtension: state.fileExtension)
+
+            activeHighlightTask = Task { [weak self] in
+                let result = await highlighter.computeHighlightsAsync(text: text, range: fullRange)
+                guard let self, self.highlightGeneration == generation else { return }
+                self.applyHighlightResult(result, range: fullRange)
+                if let scrollPos {
+                    self.textView?.enclosingScrollView?.contentView.setBoundsOrigin(scrollPos)
+                }
+                self.lastHighlightedRange = fullRange
             }
-            textView.needsDisplay = true
-            lastHighlightedRange = fullRange
         }
 
         func stripHighlighting() {
-            guard let textView, let storage = textView.textStorage else { return }
+            _ = nextHighlightGeneration()
+            guard let textView, let layoutManager = textView.layoutManager,
+                  let storage = textView.textStorage
+            else { return }
             guard storage.length > 0 else { return }
-            let scrollPos = textView.enclosingScrollView?.contentView.bounds.origin
             let fullRange = NSRange(location: 0, length: storage.length)
-            let font = editorSettings.resolvedFont
-            textView.undoManager?.disableUndoRegistration()
-            storage.beginEditing()
-            storage.addAttribute(.font, value: font, range: fullRange)
-            storage.addAttribute(.foregroundColor, value: GhosttyService.shared.foregroundColor, range: fullRange)
-            storage.endEditing()
-            textView.undoManager?.enableUndoRegistration()
-            if let scrollPos {
-                textView.enclosingScrollView?.contentView.setBoundsOrigin(scrollPos)
-            }
+            layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
             textView.needsDisplay = true
             lastHighlightedRange = NSRange(location: 0, length: 0)
         }
@@ -1428,18 +1440,16 @@ struct CodeEditorView: NSViewRepresentable {
                 return
             }
 
-            let font = editorSettings.resolvedFont
-            textView.undoManager?.disableUndoRegistration()
-            storage.beginEditing()
-            storage.addAttribute(.font, value: font, range: range)
-            storage.addAttribute(.foregroundColor, value: GhosttyService.shared.foregroundColor, range: range)
-            SyntaxHighlightExtension(fileExtension: state.fileExtension)
-                .applyTextAttributes(to: storage, fullRange: range)
-            storage.endEditing()
-            textView.undoManager?.enableUndoRegistration()
-            textView.needsDisplay = true
+            let text = storage.string
+            let generation = nextHighlightGeneration()
+            let highlighter = SyntaxHighlightExtension(fileExtension: state.fileExtension)
 
-            lastHighlightedRange = unionRange(lastHighlightedRange, range)
+            activeHighlightTask = Task { [weak self] in
+                let result = await highlighter.computeHighlightsAsync(text: text, range: range)
+                guard let self, self.highlightGeneration == generation else { return }
+                self.applyHighlightResult(result, range: range)
+                self.lastHighlightedRange = self.unionRange(self.lastHighlightedRange, range)
+            }
         }
 
         func resetHighlightedRange() {
@@ -1489,15 +1499,30 @@ struct CodeEditorView: NSViewRepresentable {
             let range = NSRange(location: startLoc, length: endLoc - startLoc)
             guard range.length > 0 else { return }
 
-            let font = editorSettings.resolvedFont
-            textView.undoManager?.disableUndoRegistration()
-            storage.beginEditing()
-            storage.addAttribute(.font, value: font, range: range)
-            storage.addAttribute(.foregroundColor, value: GhosttyService.shared.foregroundColor, range: range)
-            SyntaxHighlightExtension(fileExtension: state.fileExtension)
-                .applyTextAttributes(to: storage, fullRange: range)
-            storage.endEditing()
-            textView.undoManager?.enableUndoRegistration()
+            let text = storage.string
+            let generation = nextHighlightGeneration()
+            let highlighter = SyntaxHighlightExtension(fileExtension: state.fileExtension)
+
+            activeHighlightTask = Task { [weak self] in
+                let result = await highlighter.computeHighlightsAsync(text: text, range: range)
+                guard let self, self.highlightGeneration == generation else { return }
+                self.applyHighlightResult(result, range: range)
+            }
+        }
+
+        private func applyHighlightResult(
+            _ result: SyntaxHighlightResult,
+            range: NSRange
+        ) {
+            guard let textView, let layoutManager = textView.layoutManager else { return }
+            let storageLength = textView.textStorage?.length ?? 0
+            guard storageLength >= NSMaxRange(range) else { return }
+            layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range)
+            for (matchRange, color) in result.ranges {
+                guard NSMaxRange(matchRange) <= storageLength else { continue }
+                layoutManager.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: matchRange)
+            }
+            textView.needsDisplay = true
         }
 
         private func rangeContains(_ outer: NSRange, other: NSRange) -> Bool {
@@ -1744,10 +1769,6 @@ struct CodeEditorView: NSViewRepresentable {
             return result + 1
         }
 
-        private func localLineNumber(atCharacterLocation location: Int) -> Int {
-            lineNumber(atCharacterLocation: location)
-        }
-
         // MARK: - Chunk Append (direct mode)
 
         func appendChunkToTextView(_ chunk: String, textView: NSTextView) {
@@ -1757,7 +1778,6 @@ struct CodeEditorView: NSViewRepresentable {
             textStorage.beginEditing()
             textStorage.append(NSAttributedString(string: chunk, attributes: [
                 .font: editorSettings.resolvedFont,
-                .foregroundColor: GhosttyService.shared.foregroundColor,
             ]))
             textStorage.endEditing()
 

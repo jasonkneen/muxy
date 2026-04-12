@@ -1,5 +1,9 @@
 import AppKit
 
+struct SyntaxHighlightResult {
+    let ranges: [(NSRange, NSColor)]
+}
+
 @MainActor
 final class SyntaxHighlightExtension {
     let fileExtension: String
@@ -8,18 +12,39 @@ final class SyntaxHighlightExtension {
         self.fileExtension = fileExtension
     }
 
-    func applyTextAttributes(to storage: NSTextStorage, fullRange: NSRange) {
-        let text = storage.string
-        guard !text.isEmpty else { return }
-        let rules = SyntaxRules.forExtension(fileExtension)
+    func computeHighlightsAsync(text: String, range: NSRange) async -> SyntaxHighlightResult {
+        let resolvedRules = SyntaxRules.forExtension(fileExtension).compactMap { rule -> ResolvedRule? in
+            guard let regex = rule.regex else { return nil }
+            return ResolvedRule(regex: regex, color: rule.color(), captureGroup: rule.captureGroup)
+        }
+
+        return await Task.detached(priority: .userInitiated) {
+            let highlights = Self.computeHighlightsSync(text: text, range: range, rules: resolvedRules)
+            return SyntaxHighlightResult(ranges: highlights)
+        }.value
+    }
+
+    nonisolated private static func computeHighlightsSync(
+        text: String,
+        range: NSRange,
+        rules: [ResolvedRule]
+    ) -> [(NSRange, NSColor)] {
+        guard !text.isEmpty, range.length > 0 else { return [] }
+        var results: [(NSRange, NSColor)] = []
         for rule in rules {
-            guard let regex = rule.regex else { continue }
-            regex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
+            rule.regex.enumerateMatches(in: text, range: range) { match, _, _ in
                 guard let matchRange = match?.range(at: rule.captureGroup) else { return }
-                storage.addAttribute(.foregroundColor, value: rule.color(), range: matchRange)
+                results.append((matchRange, rule.color))
             }
         }
+        return results
     }
+}
+
+private struct ResolvedRule {
+    let regex: NSRegularExpression
+    let color: NSColor
+    let captureGroup: Int
 }
 
 private struct SyntaxRule {

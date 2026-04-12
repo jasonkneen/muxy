@@ -46,7 +46,6 @@ final class EditorTabState: Identifiable {
 
     static let largeFileWarningThreshold: Int64 = 5 * 1024 * 1024
     static let largeFileRefuseThreshold: Int64 = 50 * 1024 * 1024
-    static let viewportLineThreshold = 10000
     static let initialOpenChunkSize = 512 * 1024
     static let streamChunkSize = 4 * 1024 * 1024
     static let streamYieldChunkSize = 2 * 1024 * 1024
