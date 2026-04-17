@@ -521,7 +521,7 @@ struct GitRepositoryService {
         )
         async let numstatTask = GitProcessRunner.runGit(
             repoPath: repoPath,
-            arguments: ["-c", "core.quotepath=false", "diff", "--numstat", "--no-color", "--no-ext-diff"]
+            arguments: ["-c", "core.quotepath=false", "diff", "HEAD", "--numstat", "--no-color", "--no-ext-diff"]
         )
 
         let statusResult = try await statusTask
@@ -531,7 +531,7 @@ struct GitRepositoryService {
         }
 
         let numstatResult = try await numstatTask
-        let stats = GitStatusParser.parseNumstat(numstatResult.stdout)
+        let stats = numstatResult.status == 0 ? GitStatusParser.parseNumstat(numstatResult.stdout) : [:]
 
         return GitStatusParser.parseStatusPorcelain(statusResult.stdoutData, stats: stats).map { file in
             guard file.additions == nil, file.xStatus == "?" || file.xStatus == "A" else { return file }
