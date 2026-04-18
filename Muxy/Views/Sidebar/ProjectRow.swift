@@ -22,6 +22,7 @@ struct ProjectRow: View {
     @State private var isGitRepo = false
     @State private var showCreateWorktreeSheet = false
     @State private var logoCropImage: IdentifiableImage?
+    @State private var isRefreshingWorktrees = false
     @State private var showColorPicker = false
 
     private var isActive: Bool {
@@ -72,6 +73,7 @@ struct ProjectRow: View {
                 Button("Rename Project") { startRename() }
                 if isGitRepo {
                     Divider()
+                    Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
                     Button("New Worktree…") { showCreateWorktreeSheet = true }
                     if worktrees.count > 1 {
                         Button("Switch Worktree…") { showWorktreePopover = true }
@@ -172,6 +174,13 @@ struct ProjectRow: View {
                 .strokeBorder(isActive ? MuxyTheme.accent : .clear, lineWidth: 1.5)
                 .animation(.easeInOut(duration: 0.15), value: isActive)
         }
+        .overlay(alignment: .bottomTrailing) {
+            if isRefreshingWorktrees {
+                ProgressView()
+                    .controlSize(.mini)
+                    .padding(4)
+            }
+        }
     }
 
     private func iconBackground(hasLogo: Bool) -> AnyShapeStyle {
@@ -248,6 +257,15 @@ struct ProjectRow: View {
 
     private func cancelRename() {
         isRenaming = false
+    }
+
+    private func refreshWorktrees() async {
+        await WorktreeRefreshHelper.refresh(
+            project: project,
+            appState: appState,
+            worktreeStore: worktreeStore,
+            isRefreshing: $isRefreshingWorktrees
+        )
     }
 }
 

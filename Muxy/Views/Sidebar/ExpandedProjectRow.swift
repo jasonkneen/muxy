@@ -22,6 +22,7 @@ struct ExpandedProjectRow: View {
     @State private var showCreateWorktreeSheet = false
     @State private var logoCropImage: IdentifiableExpandedImage?
     @State private var worktreesExpanded = false
+    @State private var isRefreshingWorktrees = false
     @State private var showColorPicker = false
 
     private var isActive: Bool {
@@ -74,6 +75,7 @@ struct ExpandedProjectRow: View {
             Button("Rename Project") { startRename() }
             if isGitRepo {
                 Divider()
+                Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
                 Button("New Worktree…") { showCreateWorktreeSheet = true }
             }
             Divider()
@@ -237,9 +239,9 @@ struct ExpandedProjectRow: View {
                             to: newName
                         )
                     },
-                    onRemove: worktree.isPrimary ? nil : {
+                    onRemove: worktree.canBeRemoved ? {
                         Task { await requestRemove(worktree: worktree) }
-                    }
+                    } : nil
                 )
             }
 
@@ -396,6 +398,15 @@ struct ExpandedProjectRow: View {
     private func cancelRename() {
         isRenaming = false
     }
+
+    private func refreshWorktrees() async {
+        await WorktreeRefreshHelper.refresh(
+            project: project,
+            appState: appState,
+            worktreeStore: worktreeStore,
+            isRefreshing: $isRefreshingWorktrees
+        )
+    }
 }
 
 private struct ExpandedWorktreeRow: View {
@@ -480,12 +491,16 @@ private struct ExpandedWorktreeRow: View {
             onSelect()
         }
         .contextMenu {
-            if let onRemove {
+            if worktree.isPrimary {
+                Text("Primary worktree").font(.system(size: 11))
+            } else if let onRemove {
                 Button("Rename") { startRename() }
                 Divider()
                 Button("Remove", role: .destructive, action: onRemove)
             } else {
-                Text("Primary worktree").font(.system(size: 11))
+                Button("Rename") { startRename() }
+                Divider()
+                Text("External worktree").font(.system(size: 11))
             }
         }
         .accessibilityElement(children: .combine)
