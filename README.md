@@ -65,6 +65,8 @@ The iOS app is available for testers on TestFlight
 - Approve the connection on your Mac
 - Test and open issues for the bugs
 
+**The iOS app is also open-source and the source is in this repo**
+
 ## Local Development
 
 ```bash
