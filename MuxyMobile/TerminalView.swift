@@ -182,6 +182,8 @@ private struct SwiftTermRepresentable: UIViewRepresentable {
         if let previousPaneID = uiView.paneID, previousPaneID != paneID {
             context.coordinator.unbind()
             connection.unsubscribeTerminalBytes(paneID: previousPaneID)
+            Task { await connection.releasePane(paneID: previousPaneID) }
+            uiView.getTerminal().resetToInitialState()
             uiView.paneID = paneID
             context.coordinator.bind(view: uiView, paneID: paneID, connection: connection, onSize: onSize)
             subscribe(view: uiView, paneID: paneID)
@@ -222,6 +224,7 @@ private struct SwiftTermRepresentable: UIViewRepresentable {
         private var onSize: ((UInt32, UInt32) -> Void)?
         private var lastReportedCols: Int = 0
         private var lastReportedRows: Int = 0
+        private var isReady: Bool = false
 
         func bind(view: MuxySwiftTermView, paneID: UUID, connection: ConnectionManager, onSize: @escaping (UInt32, UInt32) -> Void) {
             self.view = view
@@ -230,14 +233,7 @@ private struct SwiftTermRepresentable: UIViewRepresentable {
             self.onSize = onSize
             lastReportedCols = 0
             lastReportedRows = 0
-            let terminal = view.getTerminal()
-            let cols = terminal.cols
-            let rows = terminal.rows
-            if cols > 0, rows > 0 {
-                lastReportedCols = cols
-                lastReportedRows = rows
-                onSize(UInt32(cols), UInt32(rows))
-            }
+            isReady = true
         }
 
         func updateOnSize(_ onSize: @escaping (UInt32, UInt32) -> Void) {
@@ -245,6 +241,7 @@ private struct SwiftTermRepresentable: UIViewRepresentable {
         }
 
         func unbind() {
+            isReady = false
             view = nil
             paneID = nil
             connection = nil
@@ -262,6 +259,7 @@ private struct SwiftTermRepresentable: UIViewRepresentable {
 
         nonisolated func sizeChanged(source _: SwiftTerm.TerminalView, newCols: Int, newRows: Int) {
             MainActor.assumeIsolated {
+                guard isReady else { return }
                 guard newCols > 0, newRows > 0 else { return }
                 if newCols == lastReportedCols, newRows == lastReportedRows { return }
                 lastReportedCols = newCols
@@ -299,6 +297,9 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
     private var wheelAccumulatedDelta: CGFloat = 0
     private static let wheelPointsPerTick: CGFloat = 24
 
+    private var userDetachedFromBottom = false
+    private static let bottomStickThreshold: CGFloat = 2
+
     private let hiddenKeyboardPlaceholder: UIView = {
         let view = UIView(frame: .zero)
         view.isHidden = true
@@ -313,6 +314,38 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
         muxyAccessoryBar.onKeyboardToggle = { [weak self] in self?.toggleKeyboard() }
         inputAccessoryView = muxyAccessoryBar
         setupWheelGesture()
+        panGestureRecognizer.addTarget(self, action: #selector(trackUserPan(_:)))
+    }
+
+    override func updateScroller() {
+        if getTerminal().isCurrentBufferAlternate {
+            userDetachedFromBottom = false
+            super.updateScroller()
+            return
+        }
+
+        if userDetachedFromBottom {
+            let savedOffset = contentOffset
+            super.updateScroller()
+            contentOffset = savedOffset
+            return
+        }
+
+        super.updateScroller()
+    }
+
+    @objc
+    private func trackUserPan(_ gesture: UIPanGestureRecognizer) {
+        switch gesture.state {
+        case .changed,
+             .ended,
+             .cancelled:
+            let maxOffsetY = max(0, contentSize.height - bounds.height)
+            let distanceFromBottom = maxOffsetY - contentOffset.y
+            userDetachedFromBottom = distanceFromBottom > Self.bottomStickThreshold
+        default:
+            break
+        }
     }
 
     @available(*, unavailable)
@@ -326,6 +359,7 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
 
     private var lastAppliedFg: UInt32?
     private var lastAppliedBg: UInt32?
+    private var lastAppliedPalette: [UInt32]?
 
     func applyMuxyTheme(_ theme: ConnectionManager.DeviceTheme?) {
         let fgRGB = theme?.fg ?? 0xFFFFFF
@@ -336,6 +370,10 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
             let terminal = getTerminal()
             setForegroundColor(source: terminal, color: Self.swiftTermColor(fgRGB))
             setBackgroundColor(source: terminal, color: Self.swiftTermColor(bgRGB))
+        }
+        if let palette = theme?.palette, palette.count == 16, palette != lastAppliedPalette {
+            lastAppliedPalette = palette
+            installColors(palette.map(Self.swiftTermColor))
         }
         caretColor = UIColor(theme?.fgColor ?? .white)
         overrideUserInterfaceStyle = (theme?.isDark ?? true) ? .dark : .light
