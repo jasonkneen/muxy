@@ -99,7 +99,6 @@ struct TerminalView: View {
     private func attemptAutoTakeOver() {
         guard let cols = reportedCols, let rows = reportedRows else { return }
         guard autoTakenPaneID != paneID else { return }
-        guard !isOwnedBySelf else { return }
         autoTakenPaneID = paneID
         takeOverInFlight = true
         Task {
@@ -208,7 +207,7 @@ private struct SwiftTermRepresentable: UIViewRepresentable {
         connection.subscribeTerminalBytes(paneID: paneID) { [weak view] data in
             guard let view else { return }
             let bytes = [UInt8](data)
-            view.feed(byteArray: bytes[...])
+            view.feedPreservingScroll(byteArray: bytes[...])
         }
     }
 
@@ -253,7 +252,7 @@ private struct SwiftTermRepresentable: UIViewRepresentable {
                 guard let paneID, let connection, let view else { return }
                 let bytes = view.accessoryTransformedBytes(data)
                 guard !bytes.isEmpty else { return }
-                Task { await connection.sendTerminalInput(paneID: paneID, bytes: bytes) }
+                connection.sendTerminalInput(paneID: paneID, bytes: bytes)
             }
         }
 
@@ -295,7 +294,8 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
 
     private var keyboardHidden = false
     private var wheelAccumulatedDelta: CGFloat = 0
-    private static let wheelPointsPerTick: CGFloat = 24
+    private static let wheelPointsPerTick: CGFloat = 16
+    private static let wheelMaxTicksPerFrame: Int = 2
 
     private var userDetachedFromBottom = false
     private static let bottomStickThreshold: CGFloat = 2
@@ -314,43 +314,25 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
         muxyAccessoryBar.onKeyboardToggle = { [weak self] in self?.toggleKeyboard() }
         inputAccessoryView = muxyAccessoryBar
         setupWheelGesture()
-        panGestureRecognizer.addTarget(self, action: #selector(trackUserPan(_:)))
-    }
-
-    override func updateScroller() {
-        if getTerminal().isCurrentBufferAlternate {
-            userDetachedFromBottom = false
-            super.updateScroller()
-            return
-        }
-
-        if userDetachedFromBottom {
-            let savedOffset = contentOffset
-            super.updateScroller()
-            contentOffset = savedOffset
-            return
-        }
-
-        super.updateScroller()
-    }
-
-    @objc
-    private func trackUserPan(_ gesture: UIPanGestureRecognizer) {
-        switch gesture.state {
-        case .changed,
-             .ended,
-             .cancelled:
-            let maxOffsetY = max(0, contentSize.height - bounds.height)
-            let distanceFromBottom = maxOffsetY - contentOffset.y
-            userDetachedFromBottom = distanceFromBottom > Self.bottomStickThreshold
-        default:
-            break
-        }
     }
 
     @available(*, unavailable)
     required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override var contentOffset: CGPoint {
+        didSet {
+            if isTracking || isDragging || isDecelerating {
+                updateUserDetachedFromBottom()
+            }
+        }
+    }
+
+    func feedPreservingScroll(byteArray: ArraySlice<UInt8>) {
+        preserveDetachedScrollPosition {
+            feed(byteArray: byteArray)
+        }
     }
 
     func applyAccessoryTheme(_ theme: ConnectionManager.DeviceTheme?) {
@@ -412,7 +394,7 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
 
     private func sendBytes(_ bytes: Data) {
         guard !bytes.isEmpty, let paneID, let connection else { return }
-        Task { await connection.sendTerminalInput(paneID: paneID, bytes: bytes) }
+        connection.sendTerminalInput(paneID: paneID, bytes: bytes)
     }
 
     private func pasteFromClipboard() {
@@ -447,6 +429,28 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
         addGestureRecognizer(gesture)
     }
 
+    private func preserveDetachedScrollPosition(_ update: () -> Void) {
+        let wasDetached = userDetachedFromBottom
+        let preservedOffset = contentOffset
+        update()
+        guard wasDetached else {
+            updateUserDetachedFromBottom()
+            return
+        }
+        let maxOffsetY = max(0, contentSize.height - bounds.height)
+        let restoredOffset = CGPoint(x: preservedOffset.x, y: min(preservedOffset.y, maxOffsetY))
+        if contentOffset != restoredOffset {
+            setContentOffset(restoredOffset, animated: false)
+        }
+        updateUserDetachedFromBottom()
+    }
+
+    private func updateUserDetachedFromBottom() {
+        let maxOffsetY = max(0, contentSize.height - bounds.height)
+        let distanceFromBottom = maxOffsetY - contentOffset.y
+        userDetachedFromBottom = distanceFromBottom > Self.bottomStickThreshold
+    }
+
     private lazy var wheelGestureDelegate: WheelGestureDelegate = {
         let d = WheelGestureDelegate()
         d.shouldFire = { [weak self] in
@@ -468,10 +472,12 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
             let translation = gesture.translation(in: self)
             gesture.setTranslation(.zero, in: self)
             wheelAccumulatedDelta += translation.y
-            let ticks = Int((wheelAccumulatedDelta / Self.wheelPointsPerTick).rounded(.towardZero))
-            guard ticks != 0 else { return }
-            wheelAccumulatedDelta -= CGFloat(ticks) * Self.wheelPointsPerTick
-            emitWheelTicks(ticks, terminal: terminal, location: gesture.location(in: self))
+            let baseTicks = Int((wheelAccumulatedDelta / Self.wheelPointsPerTick).rounded(.towardZero))
+            guard baseTicks != 0 else { return }
+            wheelAccumulatedDelta -= CGFloat(baseTicks) * Self.wheelPointsPerTick
+            let clamped = max(-Self.wheelMaxTicksPerFrame, min(Self.wheelMaxTicksPerFrame, baseTicks))
+            guard clamped != 0 else { return }
+            emitWheelTicks(clamped, terminal: terminal, location: gesture.location(in: self))
         case .ended,
              .cancelled,
              .failed:
