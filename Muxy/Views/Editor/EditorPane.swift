@@ -134,24 +134,25 @@ struct EditorPane: View {
                     html: renderedMarkdownHTML,
                     content: renderedMarkdownContent,
                     filePath: state.filePath,
+                    palette: markdownPalette,
                     syncScrollRequest: $state.markdownPreviewScrollRequest,
                     syncScrollRequestVersion: state.markdownPreviewScrollRequestVersion,
                     scrollSyncEnabled: usesMarkdownAnchorSync,
-                    showsVerticalScroller: state.markdownViewMode != .split,
-                    hidesContentScrollbar: state.markdownViewMode == .split,
-                    onSyncPointChanged: { point in
-                        let lineCount = state.backingStore?.lineCount ?? 0
-                        let output = state.markdownSyncCoordinator.previewDidScroll(point: point, totalLineCount: lineCount)
+                    onScrollReport: { report in
+                        state.markdownPreviewMaxScrollTop = report.maxScrollTop
+                        state.markdownPreviewViewportHeight = report.clientHeight
+                        let map = state.currentMarkdownSyncMap()
+                        let output = state.markdownSyncCoordinator.previewDidScroll(scrollTop: report.scrollTop, map: map)
                         state.applyMarkdownSyncOutput(output)
-                    },
-                    onWheelDelta: { deltaY in
-                        state.forwardLinkedMarkdownScroll(deltaY: deltaY)
                     },
                     onLayoutChanged: {
-                        let output = state.markdownSyncCoordinator.previewDidRelayout()
+                        let map = state.currentMarkdownSyncMap()
+                        let output = state.markdownSyncCoordinator.reissueAfterRelayout(map: map)
                         state.applyMarkdownSyncOutput(output)
                     },
-                    onAnchorGeometryChanged: nil
+                    onAnchorGeometryChanged: { geometries in
+                        state.markdownPreviewGeometries = geometries
+                    }
                 )
             }
         }
@@ -164,14 +165,14 @@ struct EditorPane: View {
     }
 
     private var renderedMarkdownHTML: String {
-        MarkdownRenderer.html(
-            anchors: state.markdownSyncAnchors(),
-            filePath: state.filePath,
-            palette: MarkdownRenderer.Palette(
-                background: ghostty.backgroundColor,
-                foreground: ghostty.foregroundColor,
-                accent: ghostty.accentColor
-            )
+        MarkdownRenderer.html(filePath: state.filePath)
+    }
+
+    private var markdownPalette: MarkdownRenderer.Palette {
+        MarkdownRenderer.Palette(
+            background: ghostty.backgroundColor,
+            foreground: ghostty.foregroundColor,
+            accent: ghostty.accentColor
         )
     }
 
