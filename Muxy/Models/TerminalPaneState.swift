@@ -6,6 +6,7 @@ final class TerminalPaneState: Identifiable {
     let id = UUID()
     let projectPath: String
     var title: String
+    var currentWorkingDirectory: String?
     let startupCommand: String?
     let startupCommandInteractive: Bool
     let externalEditorFilePath: String?
@@ -15,12 +16,14 @@ final class TerminalPaneState: Identifiable {
     init(
         projectPath: String,
         title: String = "Terminal",
+        initialWorkingDirectory: String? = nil,
         startupCommand: String? = nil,
         startupCommandInteractive: Bool = false,
         externalEditorFilePath: String? = nil
     ) {
         self.projectPath = projectPath
         self.title = title
+        self.currentWorkingDirectory = initialWorkingDirectory
         self.startupCommand = startupCommand
         self.startupCommandInteractive = startupCommandInteractive
         self.externalEditorFilePath = externalEditorFilePath
@@ -33,5 +36,9 @@ final class TerminalPaneState: Identifiable {
             guard !Task.isCancelled, let self, self.title != newTitle else { return }
             self.title = newTitle
         }
+    }
+
+    func setWorkingDirectory(_ path: String) {
+        currentWorkingDirectory = path
     }
 }

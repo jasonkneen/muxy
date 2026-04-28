@@ -23,6 +23,9 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
 
     func action(app: ghostty_app_t?, target: ghostty_target_s, action: ghostty_action_s) -> Bool {
         switch action.tag {
+        case GHOSTTY_ACTION_PWD:
+            handlePwdChange(target: target, pwd: action.action.pwd)
+            return true
         case GHOSTTY_ACTION_SET_TITLE:
             handleSetTitle(target: target, title: action.action.set_title)
             return true
@@ -62,6 +65,16 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         let titleString = String(cString: titlePtr)
         DispatchQueue.main.async {
             view.onTitleChange?(titleString)
+        }
+    }
+
+    private func handlePwdChange(target: ghostty_target_s, pwd: ghostty_action_pwd_s) {
+        guard let view = surfaceView(from: target) else { return }
+        guard let pwdPtr = pwd.pwd else { return }
+        let path = String(cString: pwdPtr)
+        logger.debug("PWD changed: \(path)")
+        DispatchQueue.main.async {
+            view.onWorkingDirectoryChange?(path)
         }
     }
 

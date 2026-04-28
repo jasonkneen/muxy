@@ -28,6 +28,41 @@ struct WorkspaceSnapshotTests {
         #expect(decoded.projectPath == testPath)
         #expect(decoded.paneTitle == "Shell")
         #expect(decoded.filePath == nil)
+        #expect(decoded.currentWorkingDirectory == nil)
+    }
+
+    @Test("TerminalTabSnapshot round-trip preserves currentWorkingDirectory")
+    func terminalTabSnapshotPreservesWorkingDirectory() throws {
+        let snapshot = TerminalTabSnapshot(
+            kind: .terminal,
+            customTitle: nil,
+            colorID: nil,
+            isPinned: false,
+            projectPath: testPath,
+            paneTitle: "Shell",
+            currentWorkingDirectory: "/tmp/test/src"
+        )
+        let data = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(TerminalTabSnapshot.self, from: data)
+
+        #expect(decoded.currentWorkingDirectory == "/tmp/test/src")
+        #expect(decoded.projectPath == testPath)
+    }
+
+    @Test("TerminalTabSnapshot decoding without currentWorkingDirectory defaults to nil")
+    func terminalTabSnapshotBackwardCompatibility() throws {
+        let json = """
+        {
+            "kind": "terminal",
+            "isPinned": false,
+            "projectPath": "\(testPath)",
+            "paneTitle": "Shell"
+        }
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(TerminalTabSnapshot.self, from: json)
+
+        #expect(decoded.currentWorkingDirectory == nil)
+        #expect(decoded.projectPath == testPath)
     }
 
     @Test("TerminalTabSnapshot Codable round-trip for editor")

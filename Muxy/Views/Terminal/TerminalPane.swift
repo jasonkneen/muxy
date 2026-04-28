@@ -128,7 +128,7 @@ struct TerminalBridge: NSViewRepresentable {
         let registry = TerminalViewRegistry.shared
         let view = registry.view(
             for: state.id,
-            workingDirectory: state.projectPath,
+            workingDirectory: state.currentWorkingDirectory ?? state.projectPath,
             command: state.startupCommand,
             commandInteractive: state.startupCommandInteractive
         )
@@ -143,6 +143,11 @@ struct TerminalBridge: NSViewRepresentable {
         view.onTitleChange = { [weak state] title in
             DispatchQueue.main.async {
                 state?.setTitle(title)
+            }
+        }
+        view.onWorkingDirectoryChange = { [weak state] path in
+            DispatchQueue.main.async {
+                state?.setWorkingDirectory(path)
             }
         }
         configureSearchCallbacks(view)
@@ -167,6 +172,11 @@ struct TerminalBridge: NSViewRepresentable {
         nsView.onTitleChange = { [weak state] title in
             DispatchQueue.main.async {
                 state?.setTitle(title)
+            }
+        }
+        nsView.onWorkingDirectoryChange = { [weak state] path in
+            DispatchQueue.main.async {
+                state?.setWorkingDirectory(path)
             }
         }
         configureSearchCallbacks(nsView)
