@@ -3,6 +3,7 @@ import SwiftUI
 struct EditorSettingsView: View {
     @State private var settings = EditorSettings.shared
     @State private var monoFonts: [String] = []
+    @State private var markdownFonts: [String] = []
     @State private var allowMarkdownRemoteImages = MarkdownPreviewPreferences.allowRemoteImages
 
     private var showsAppearanceSection: Bool { settings.defaultEditor == .builtIn }
@@ -39,6 +40,48 @@ struct EditorSettingsView: View {
                     .onChange(of: allowMarkdownRemoteImages) { _, newValue in
                         MarkdownPreviewPreferences.allowRemoteImages = newValue
                     }
+
+                SettingsRow("Font Family") {
+                    Picker("", selection: $settings.markdownPreviewFontFamily) {
+                        ForEach(markdownFonts, id: \.self) { family in
+                            if family == EditorSettings.systemFontFamilyToken {
+                                Text(family).tag(family)
+                            } else {
+                                Text(family)
+                                    .font(.custom(family, size: 12))
+                                    .tag(family)
+                            }
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                }
+
+                SettingsRow("Zoom") {
+                    HStack(spacing: 8) {
+                        Button {
+                            settings.adjustMarkdownPreviewFontScale(by: -EditorSettings.markdownPreviewZoomStep)
+                        } label: {
+                            Image(systemName: "minus")
+                                .font(.system(size: 10, weight: .medium))
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+
+                        Text("\(Int((settings.markdownPreviewFontScale * 100).rounded()))%")
+                            .font(.system(size: SettingsMetrics.labelFontSize, design: .monospaced))
+                            .frame(width: 44)
+
+                        Button {
+                            settings.adjustMarkdownPreviewFontScale(by: EditorSettings.markdownPreviewZoomStep)
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 10, weight: .medium))
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
             }
 
             if showsAppearanceSection {
@@ -101,6 +144,7 @@ struct EditorSettingsView: View {
         }
         .task {
             monoFonts = EditorSettings.availableMonospacedFonts
+            markdownFonts = EditorSettings.availableMarkdownPreviewFonts
         }
     }
 }

@@ -64,6 +64,15 @@ struct MuxyCommands: Commands {
         }
     }
 
+    private var isMarkdownPreviewActive: Bool {
+        guard let state = activeEditorState, state.isMarkdownFile else { return false }
+        return state.markdownViewMode == .preview || state.markdownViewMode == .split
+    }
+
+    private func adjustMarkdownPreviewZoom(by delta: CGFloat) {
+        EditorSettings.shared.adjustMarkdownPreviewFontScale(by: delta)
+    }
+
     private func performCommandShortcut(_ shortcut: CommandShortcut) {
         guard isMainWindowFocused,
               let projectID = appState.activeProjectID,
@@ -277,6 +286,29 @@ struct MuxyCommands: Commands {
                 performShortcutAction(.focusPaneDown)
             }
             .shortcut(for: .focusPaneDown, store: keyBindings)
+        }
+
+        CommandGroup(after: .toolbar) {
+            Button("Zoom In Markdown Preview") {
+                guard isMainWindowFocused, isMarkdownPreviewActive else { return }
+                adjustMarkdownPreviewZoom(by: EditorSettings.markdownPreviewZoomStep)
+            }
+            .keyboardShortcut("=", modifiers: .command)
+            .disabled(!isMarkdownPreviewActive)
+
+            Button("Zoom Out Markdown Preview") {
+                guard isMainWindowFocused, isMarkdownPreviewActive else { return }
+                adjustMarkdownPreviewZoom(by: -EditorSettings.markdownPreviewZoomStep)
+            }
+            .keyboardShortcut("-", modifiers: .command)
+            .disabled(!isMarkdownPreviewActive)
+
+            Button("Reset Markdown Preview Zoom") {
+                guard isMainWindowFocused, isMarkdownPreviewActive else { return }
+                EditorSettings.shared.markdownPreviewFontScale = EditorSettings.defaultMarkdownPreviewFontScale
+            }
+            .keyboardShortcut("0", modifiers: .command)
+            .disabled(!isMarkdownPreviewActive)
         }
 
         CommandGroup(after: .windowList) {
