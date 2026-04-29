@@ -28,10 +28,10 @@ extract_last_message() {
 
 case "$event" in
     notification)
-        send_notification "claude_hook" "Claude Code" "Needs attention"
+        send_notification "codex_hook" "Codex" "Needs attention"
         ;;
     stop)
         body=$(extract_last_message)
-        send_notification "claude_hook" "Claude Code" "$body"
+        send_notification "codex_hook" "Codex" "$body"
         ;;
 esac
