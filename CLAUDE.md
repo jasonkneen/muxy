@@ -75,7 +75,7 @@ The xcframework is built via GitHub Actions on the [muxy-app/ghostty](https://gi
 - Upload screenshots or recordings for the PRs.
 - Never answer any question without a proper investigation and exploring the codebase.
 - Prioritize problem comprehension over premature implementation. Validate the approach before execution to avoid rework
-
+- Plan properly before executing to not double work
 
 ## Code Review
 
