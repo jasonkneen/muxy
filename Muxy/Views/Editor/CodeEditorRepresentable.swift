@@ -119,6 +119,70 @@ private final class CodeEditorLayoutManager: NSLayoutManager {
     }
 }
 
+final class EditorScrollContainer: NSView {
+    let scrollView: NSScrollView
+    private(set) var gutterView: LineNumberGutterView?
+
+    init(scrollView: NSScrollView) {
+        self.scrollView = scrollView
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        autoresizesSubviews = false
+        addSubview(scrollView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func resizeSubviews(withOldSize _: NSSize) {
+        layoutChildren()
+    }
+
+    override func layout() {
+        super.layout()
+        layoutChildren()
+    }
+
+    func setGutter(_ gutter: LineNumberGutterView?) {
+        guard gutter !== gutterView else { return }
+        gutterView?.removeFromSuperview()
+        gutterView = gutter
+        if let gutter {
+            addSubview(gutter)
+        }
+        layoutChildren()
+    }
+
+    func gutterWidthDidChange() {
+        layoutChildren()
+    }
+
+    private func layoutChildren() {
+        let bounds = self.bounds
+        let gutterWidth = gutterView?.preferredWidth ?? 0
+        if let gutterView {
+            let gutterFrame = NSRect(x: 0, y: 0, width: gutterWidth, height: bounds.height)
+            if gutterView.frame != gutterFrame {
+                gutterView.frame = gutterFrame
+            }
+        }
+        let scrollFrame = NSRect(
+            x: gutterWidth,
+            y: 0,
+            width: max(0, bounds.width - gutterWidth),
+            height: bounds.height
+        )
+        if scrollView.frame != scrollFrame {
+            scrollView.frame = scrollFrame
+        }
+    }
+}
+
 final class ViewportContainerView: NSView {
     override var isFlipped: Bool { true }
 
@@ -180,11 +244,11 @@ struct CodeEditorView: NSViewRepresentable {
         Coordinator(state: state, editorSettings: editorSettings)
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> EditorScrollContainer {
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = showsVerticalScroller
         scrollView.hasHorizontalScroller = !lineWrapping
-        scrollView.autoresizingMask = [.width, .height]
+        scrollView.autoresizingMask = []
 
         let textStorage = NSTextStorage()
         let layoutManager = CodeEditorLayoutManager()
@@ -248,9 +312,12 @@ struct CodeEditorView: NSViewRepresentable {
         scrollView.contentView.postsFrameChangedNotifications = true
 
         let coordinator = context.coordinator
+        let container = EditorScrollContainer(scrollView: scrollView)
+        container.autoresizingMask = [.width, .height]
         textView.delegate = coordinator
         coordinator.textView = textView
         coordinator.scrollView = scrollView
+        coordinator.scrollContainer = container
         textView.onUndoRequest = { [weak coordinator] in
             coordinator?.performUndoRequest() ?? false
         }
@@ -268,10 +335,10 @@ struct CodeEditorView: NSViewRepresentable {
 
         coordinator.applyLineWrapping(lineWrapping)
 
-        return scrollView
+        return container
     }
 
-    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+    static func dismantleNSView(_: EditorScrollContainer, coordinator: Coordinator) {
         if let textView = coordinator.textView {
             textView.undoManager?.removeAllActions()
             if let window = textView.window, window.firstResponder === textView {
@@ -299,7 +366,8 @@ struct CodeEditorView: NSViewRepresentable {
         }
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    func updateNSView(_ container: EditorScrollContainer, context: Context) {
+        let scrollView = container.scrollView
         guard let textView = context.coordinator.textView else { return }
         let coordinator = context.coordinator
 
@@ -312,7 +380,7 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator.enterViewportMode(scrollView: scrollView)
         }
 
-        coordinator.reconcileLineNumberGutter()
+        coordinator.reconcileLineNumberGutter(showLineNumbers)
         coordinator.reconcileCurrentLineHighlight()
         coordinator.reconcileLineWrapping(lineWrapping)
         updateNSViewViewportMode(scrollView: scrollView, textView: textView, coordinator: coordinator)
@@ -501,16 +569,16 @@ struct CodeEditorView: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate, SyntaxHighlightCoordinator, SearchControllerHost, ViewportEditHistoryHost,
-        LineNumberGutterHost, CurrentLineHighlightHost
+        CurrentLineHighlightHost, LineNumberGutterHost
     {
         let state: EditorTabState
         let editorSettings: EditorSettings
         weak var textView: NSTextView?
 
         weak var scrollView: NSScrollView?
+        weak var scrollContainer: EditorScrollContainer?
         var viewportState: ViewportState?
         var containerView: ViewportContainerView?
-        var leadingGutterWidth: CGFloat = 0
         private(set) var lineWrappingEnabled: Bool = false
         private var pendingWrapResizeWorkItem: DispatchWorkItem?
 
@@ -580,18 +648,18 @@ struct CodeEditorView: NSViewRepresentable {
             extensions = loaded
         }
 
-        func reconcileLineNumberGutter() {
+        func reconcileLineNumberGutter(_ showLineNumbers: Bool) {
             let hasGutter = extensions.contains(where: { $0 is LineNumberGutterExtension })
-            if editorSettings.showLineNumbers, !hasGutter {
+            if showLineNumbers, !hasGutter {
                 let ext = LineNumberGutterExtension(host: self)
                 extensions.append(ext)
                 if let context = makeRenderContext() {
                     ext.didMount(context: context)
-                    refreshViewport(force: true)
+                    refreshViewportPinningAnchor()
                 }
                 return
             }
-            if !editorSettings.showLineNumbers, hasGutter {
+            if !showLineNumbers, hasGutter {
                 let context = makeRenderContext()
                 let removed = extensions.filter { $0 is LineNumberGutterExtension }
                 extensions.removeAll { $0 is LineNumberGutterExtension }
@@ -600,7 +668,7 @@ struct CodeEditorView: NSViewRepresentable {
                         ext.willUnmount(context: context)
                     }
                 }
-                refreshViewport(force: true)
+                refreshViewportPinningAnchor()
             }
         }
 
@@ -677,7 +745,7 @@ struct CodeEditorView: NSViewRepresentable {
             guard let scrollView else { return 0 }
             let total = scrollView.contentSize.width
             let inset = textView?.textContainerInset.width ?? 0
-            return max(1, total - leadingGutterWidth - inset * 2)
+            return max(1, total - inset * 2)
         }
 
         private func makeRenderContext() -> EditorRenderContext? {
@@ -1149,11 +1217,11 @@ struct CodeEditorView: NSViewRepresentable {
             let estimatedHeight = viewport.estimatedLineHeight * CGFloat(max(1, visibleLineCount))
                 + textView.textContainerInset.height * 2
             let viewportWidth = viewportContentWidth(for: textView, scrollView: scrollView)
-            let targetTextWidth = max(0, viewportWidth - leadingGutterWidth)
+            let targetTextWidth = max(0, viewportWidth)
 
             if lineWrappingEnabled, textView.frame.width != targetTextWidth, targetTextWidth > 0 {
                 textView.frame = NSRect(
-                    x: leadingGutterWidth,
+                    x: 0,
                     y: textView.frame.origin.y,
                     width: targetTextWidth,
                     height: textView.frame.height
@@ -1184,7 +1252,7 @@ struct CodeEditorView: NSViewRepresentable {
             }
             let resolvedYOffset = viewport.viewportYOffset()
             let newTextFrame = NSRect(
-                x: leadingGutterWidth,
+                x: 0,
                 y: resolvedYOffset,
                 width: targetTextWidth,
                 height: max(estimatedHeight, laidOutHeight, 100)
