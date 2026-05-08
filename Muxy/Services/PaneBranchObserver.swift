@@ -8,8 +8,8 @@ final class PaneBranchObserver {
     private(set) var branch: String?
 
     @ObservationIgnored private var repoPath: String?
-    @ObservationIgnored nonisolated(unsafe) private var refreshTask: Task<Void, Never>?
-    @ObservationIgnored nonisolated(unsafe) private var timer: Timer?
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var pollingTask: Task<Void, Never>?
     @ObservationIgnored private let resolver: BranchResolver
     @ObservationIgnored private let refreshInterval: TimeInterval
 
@@ -21,8 +21,8 @@ final class PaneBranchObserver {
         self.resolver = resolver
     }
 
-    nonisolated deinit {
-        timer?.invalidate()
+    deinit {
+        pollingTask?.cancel()
         refreshTask?.cancel()
     }
 
@@ -37,20 +37,19 @@ final class PaneBranchObserver {
     }
 
     func start() {
-        guard timer == nil else { return }
-        timer = Timer.scheduledTimer(
-            withTimeInterval: refreshInterval,
-            repeats: true
-        ) { [weak self] _ in
-            guard let self else { return }
-            MainActor.assumeIsolated { self.refresh() }
+        guard pollingTask == nil else { return }
+        let interval = refreshInterval
+        pollingTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                self?.refresh()
+                try? await Task.sleep(for: .seconds(interval))
+            }
         }
-        refresh()
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        pollingTask?.cancel()
+        pollingTask = nil
         refreshTask?.cancel()
         refreshTask = nil
     }
