@@ -21,7 +21,7 @@ final class PaneBranchObserver {
         self.resolver = resolver
     }
 
-    deinit {
+    nonisolated deinit {
         timer?.invalidate()
         refreshTask?.cancel()
     }
