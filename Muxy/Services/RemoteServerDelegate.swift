@@ -12,6 +12,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     private let projectStore: ProjectStore
     private let worktreeStore: WorktreeStore
     private let gitService = GitRepositoryService()
+    private var workspaceBroadcastTask: Task<Void, Never>?
+    private var projectsBroadcastTask: Task<Void, Never>?
     weak var server: MuxyRemoteServer? {
         didSet { RemoteTerminalStreamer.shared.server = server }
     }
@@ -33,6 +35,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
                 self?.broadcastTheme()
             }
         }
+        observeWorkspaceState()
+        observeProjectsState()
     }
 
     private func broadcastOwnership(paneID: UUID, owner: PaneOwnerDTO) {
@@ -45,8 +49,68 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         server?.broadcast(MuxyEvent(event: .themeChanged, data: .deviceTheme(dto)))
     }
 
-    func listProjects() -> [ProjectDTO] {
+    private func observeWorkspaceState() {
+        withObservationTracking { [weak self] in
+            _ = self?.workspaceSnapshots()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.scheduleWorkspaceBroadcast()
+                self.observeWorkspaceState()
+            }
+        }
+    }
+
+    private func observeProjectsState() {
+        withObservationTracking { [weak self] in
+            _ = self?.projectSnapshots()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.scheduleProjectsBroadcast()
+                self.observeProjectsState()
+            }
+        }
+    }
+
+    private func scheduleWorkspaceBroadcast() {
+        workspaceBroadcastTask?.cancel()
+        workspaceBroadcastTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard let self, !Task.isCancelled else { return }
+            self.broadcastWorkspaces()
+        }
+    }
+
+    private func scheduleProjectsBroadcast() {
+        projectsBroadcastTask?.cancel()
+        projectsBroadcastTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard let self, !Task.isCancelled else { return }
+            self.broadcastProjects()
+        }
+    }
+
+    private func workspaceSnapshots() -> [WorkspaceDTO] {
+        appState.activeWorktreeID.keys.compactMap { getWorkspace(projectID: $0) }
+    }
+
+    private func projectSnapshots() -> [ProjectDTO] {
         projectStore.projects.map { $0.toDTO() }
+    }
+
+    private func broadcastWorkspaces() {
+        for dto in workspaceSnapshots() {
+            server?.broadcast(MuxyEvent(event: .workspaceChanged, data: .workspace(dto)))
+        }
+    }
+
+    private func broadcastProjects() {
+        server?.broadcast(MuxyEvent(event: .projectsChanged, data: .projects(projectSnapshots())))
+    }
+
+    func listProjects() -> [ProjectDTO] {
+        projectSnapshots()
     }
 
     func selectProject(_ projectID: UUID) {
