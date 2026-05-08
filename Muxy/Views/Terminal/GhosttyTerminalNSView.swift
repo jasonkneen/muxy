@@ -329,6 +329,14 @@ final class GhosttyTerminalNSView: NSView {
         updateMetalLayerSize(deferred: false)
     }
 
+    func materializeHeadless() {
+        guard surface == nil else { return }
+        if frame.size.width <= 0 || frame.size.height <= 0 {
+            setFrameSize(NSSize(width: 1, height: 1))
+        }
+        createSurface()
+    }
+
     private func backingPixelSize() -> (width: UInt32, height: UInt32)? {
         let size = convertToBacking(bounds).size
         let width = Int(floor(size.width))
