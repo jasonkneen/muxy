@@ -252,11 +252,10 @@ jobs:
               appcast.xml
           fi
 
-      - name: Open BETA_VERSION bump PR
+      - name: Bump BETA_VERSION
         env:
           NEXT: ${{ needs.validate.outputs.next_beta_version }}
           GH_RELEASE_PAT: ${{ secrets.GH_RELEASE_PAT }}
-          GH_TOKEN: ${{ secrets.GH_RELEASE_PAT }}
           REPO: ${{ github.repository }}
         run: |
           git config user.name "github-actions[bot]"
@@ -265,27 +264,14 @@ jobs:
           git fetch origin main
           git checkout main
           git pull --rebase origin main
-          CURRENT=$(tr -d '[:space:]' < BETA_VERSION)
-          if [[ "$CURRENT" == "$NEXT" ]]; then
-            echo "BETA_VERSION already at $NEXT, nothing to do"
-            exit 0
-          fi
-          BRANCH="release/bump-beta-version-${NEXT}"
-          git checkout -B "$BRANCH"
           echo "$NEXT" > BETA_VERSION
           git add BETA_VERSION
-          git commit -m "Bump BETA_VERSION to $NEXT"
-          git push --force-with-lease origin "$BRANCH"
-          if gh pr view "$BRANCH" --repo "$REPO" >/dev/null 2>&1; then
-            echo "PR for $BRANCH already exists"
-          else
-            gh pr create \
-              --repo "$REPO" \
-              --base main \
-              --head "$BRANCH" \
-              --title "Bump BETA_VERSION to $NEXT" \
-              --body "Automated bump after stable release."
+          if git diff --cached --quiet; then
+            echo "BETA_VERSION already at $NEXT, nothing to commit"
+            exit 0
           fi
+          git commit -m "Bump BETA_VERSION to $NEXT"
+          git push origin main
 
       - name: Notify Discord
         continue-on-error: true
