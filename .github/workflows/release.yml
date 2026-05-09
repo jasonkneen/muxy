@@ -243,7 +243,6 @@ jobs:
             gh release create "$TAG" \
               --repo "${{ github.repository }}" \
               --title "Muxy $TAG" \
-              --draft \
               --generate-notes \
               artifacts/dmg-arm64/*.dmg \
               artifacts/dmg-x86_64/*.dmg \
