@@ -59,6 +59,14 @@ final class TerminalViewRegistry {
             view.applyColorScheme(isDark: isDark)
         }
     }
+
+    var liveViewCount: Int {
+        views.count
+    }
+
+    var liveSurfaceCount: Int {
+        views.values.reduce(0) { $1.surface != nil ? $0 + 1 : $0 }
+    }
 }
 
 extension TerminalViewRegistry: TerminalViewRemoving {}

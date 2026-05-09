@@ -24,6 +24,14 @@ struct MainWindow: View {
         static let minWidth: CGFloat = 280
         static let defaultWidth: CGFloat = 380
         static let maxWidth: CGFloat = 800
+        static let minHeight: CGFloat = 120
+        static let defaultHeight: CGFloat = 220
+        static let maxHeight: CGFloat = 600
+    }
+
+    private enum SidePanelKind {
+        case vcs
+        case fileTree
     }
 
     private enum CloseConfirmationKind {
@@ -60,8 +68,13 @@ struct MainWindow: View {
     @AppStorage("muxy.fileTreeWidth") private var fileTreePanelWidth: Double = .init(FileTreeLayout.defaultWidth)
     @State private var fileTreeStates: [WorktreeKey: FileTreeState] = [:]
     @State private var richInputPanelVisible = false
+    @State private var panelToRestoreAfterRichInput: SidePanelKind?
     @AppStorage("muxy.richInputPanelWidth") private var richInputPanelWidth: Double = .init(RichInputPanelLayout.defaultWidth)
+    @AppStorage("muxy.richInputPanelHeight") private var richInputPanelHeight: Double = .init(RichInputPanelLayout.defaultHeight)
     @AppStorage(RichInputPreferences.fontSizeKey) private var richInputFontSize: Double = RichInputPreferences.defaultFontSize
+    @AppStorage(RichInputPreferences.floatingKey) private var richInputFloating = RichInputPreferences.defaultFloating
+    @AppStorage(RichInputPreferences.positionKey) private var richInputPosition: RichInputPanelPosition = RichInputPreferences
+        .defaultPosition
     @State private var richInputStates: [WorktreeKey: RichInputState] = [:]
     @State private var showQuickOpen = false
     @State private var showFindInFiles = false
@@ -139,6 +152,15 @@ struct MainWindow: View {
 
                         rightSidePanel
                     }
+                    .overlay(alignment: .trailing) {
+                        floatingRichInputOverlay
+                    }
+                    .overlay(alignment: .bottom) {
+                        floatingBottomRichInputOverlay
+                    }
+                    .animation(.easeInOut(duration: 0.2), value: richInputPanelVisible)
+
+                    bottomDockedRichInputPanel
 
                     ProjectStatusBar(
                         activePane: activeTerminalPane,
@@ -686,27 +708,78 @@ struct MainWindow: View {
     }
 
     @ViewBuilder
-    private var rightSidePanel: some View {
-        if richInputPanelVisible,
-           let richInputState = activeRichInputState,
-           let worktreeKey = activeWorktreeKey
-        {
-            HStack(spacing: 0) {
-                sidePanelResizeHandle { delta in
-                    let next = richInputPanelWidth - Double(delta)
-                    richInputPanelWidth = max(
-                        Double(RichInputPanelLayout.minWidth),
-                        min(Double(RichInputPanelLayout.maxWidth), next)
-                    )
+    private var floatingRichInputOverlay: some View {
+        if isRichInputVisible(floating: true, at: .right) {
+            richInputPanelContent(at: .right)
+                .background(MuxyTheme.bg)
+                .transition(.move(edge: .trailing))
+        }
+    }
+
+    @ViewBuilder
+    private var bottomDockedRichInputPanel: some View {
+        if isRichInputVisible(floating: false, at: .bottom) {
+            richInputPanelContent(at: .bottom)
+        }
+    }
+
+    @ViewBuilder
+    private var floatingBottomRichInputOverlay: some View {
+        if isRichInputVisible(floating: true, at: .bottom) {
+            richInputPanelContent(at: .bottom)
+                .background(MuxyTheme.bg)
+                .transition(.move(edge: .bottom))
+        }
+    }
+
+    private func isRichInputVisible(floating: Bool, at position: RichInputPanelPosition) -> Bool {
+        richInputPanelVisible
+            && richInputFloating == floating
+            && richInputPosition == position
+            && activeRichInputState != nil
+            && activeWorktreeKey != nil
+    }
+
+    @ViewBuilder
+    private func richInputPanelContent(at position: RichInputPanelPosition) -> some View {
+        if let richInputState = activeRichInputState, let worktreeKey = activeWorktreeKey {
+            let panel = RichInputSidePanel(
+                state: richInputState,
+                worktreeKey: worktreeKey,
+                onDismiss: { closeRichInputPanel() },
+                onSubmit: { appendReturn in submitRichInput(richInputState, appendReturn: appendReturn) }
+            )
+            switch position {
+            case .right:
+                HStack(spacing: 0) {
+                    sidePanelResizeHandle { delta in
+                        let next = richInputPanelWidth - Double(delta)
+                        richInputPanelWidth = max(
+                            Double(RichInputPanelLayout.minWidth),
+                            min(Double(RichInputPanelLayout.maxWidth), next)
+                        )
+                    }
+                    panel.frame(width: CGFloat(richInputPanelWidth))
                 }
-                RichInputSidePanel(
-                    state: richInputState,
-                    worktreeKey: worktreeKey,
-                    onDismiss: { closeRichInputPanel() },
-                    onSubmit: { appendReturn in submitRichInput(richInputState, appendReturn: appendReturn) }
-                )
-                .frame(width: CGFloat(richInputPanelWidth))
+            case .bottom:
+                VStack(spacing: 0) {
+                    bottomPanelResizeHandle { delta in
+                        let next = richInputPanelHeight - Double(delta)
+                        richInputPanelHeight = max(
+                            Double(RichInputPanelLayout.minHeight),
+                            min(Double(RichInputPanelLayout.maxHeight), next)
+                        )
+                    }
+                    panel.frame(height: CGFloat(richInputPanelHeight))
+                }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var rightSidePanel: some View {
+        if isRichInputVisible(floating: false, at: .right) {
+            richInputPanelContent(at: .right)
         } else if vcsPanelVisible, VCSDisplayMode.current == .attached, let state = activeVCSState {
             HStack(spacing: 0) {
                 sidePanelResizeHandle { delta in
@@ -764,6 +837,23 @@ struct MainWindow: View {
                     )
                     .onHover { on in
                         if on { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                    }
+            }
+    }
+
+    private func bottomPanelResizeHandle(onDrag: @escaping (CGFloat) -> Void) -> some View {
+        Rectangle().fill(MuxyTheme.border).frame(height: 1)
+            .accessibilityHidden(true)
+            .overlay {
+                Color.clear
+                    .frame(height: UIMetrics.scaled(5))
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 1)
+                            .onChanged { v in onDrag(v.translation.height) }
+                    )
+                    .onHover { on in
+                        if on { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
                     }
             }
     }
@@ -827,6 +917,7 @@ struct MainWindow: View {
         vcsPanelVisible = isShowing
         if isShowing {
             fileTreePanelVisible = false
+            panelToRestoreAfterRichInput = nil
             closeRichInputPanel()
         }
     }
@@ -845,6 +936,7 @@ struct MainWindow: View {
         fileTreePanelVisible = isShowing
         if isShowing {
             vcsPanelVisible = false
+            panelToRestoreAfterRichInput = nil
             closeRichInputPanel()
         } else {
             NotificationCenter.default.post(name: .refocusActiveTerminal, object: nil)
@@ -876,10 +968,21 @@ struct MainWindow: View {
     private func toggleRichInputPanel() {
         guard let richInputState = activeRichInputState else { return }
         guard richInputPanelVisible else {
+            if richInputReplacesRightSidePanel {
+                if vcsPanelVisible {
+                    panelToRestoreAfterRichInput = .vcs
+                } else if fileTreePanelVisible {
+                    panelToRestoreAfterRichInput = .fileTree
+                } else {
+                    panelToRestoreAfterRichInput = nil
+                }
+                vcsPanelVisible = false
+                fileTreePanelVisible = false
+            } else {
+                panelToRestoreAfterRichInput = nil
+            }
             richInputPanelVisible = true
             richInputState.focusVersion += 1
-            vcsPanelVisible = false
-            fileTreePanelVisible = false
             return
         }
         if NSApp.keyWindow?.firstResponder is MarkdownEditingTextView {
@@ -889,8 +992,29 @@ struct MainWindow: View {
         }
     }
 
+    private var richInputReplacesRightSidePanel: Bool {
+        !richInputFloating && richInputPosition == .right
+    }
+
     private func closeRichInputPanel() {
         richInputPanelVisible = false
+        let panelToRestore = panelToRestoreAfterRichInput
+        panelToRestoreAfterRichInput = nil
+        switch panelToRestore {
+        case .vcs:
+            if VCSDisplayMode.current == .attached, activeProject != nil {
+                vcsPanelVisible = true
+                return
+            }
+        case .fileTree:
+            if let project = activeProject {
+                ensureFileTreeState(for: project)
+                fileTreePanelVisible = true
+                return
+            }
+        case .none:
+            break
+        }
         guard let paneID = activeRichInputPaneID,
               let view = TerminalViewRegistry.shared.existingView(for: paneID)
         else { return }

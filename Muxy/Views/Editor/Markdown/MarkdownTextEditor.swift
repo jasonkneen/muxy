@@ -13,6 +13,9 @@ struct MarkdownTextEditor: NSViewRepresentable {
 
     struct Callbacks {
         var onSubmit: (() -> Void)?
+        var onSubmitWithoutReturn: (() -> Void)?
+        var onIncreaseFontSize: (() -> Void)?
+        var onDecreaseFontSize: (() -> Void)?
         var onPasteImageData: ((Data) -> Void)?
         var onPasteFileURL: ((URL) -> Void)?
         var onContentHeightChange: ((CGFloat) -> Void)?
@@ -80,6 +83,15 @@ struct MarkdownTextEditor: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.onSubmit = { [weak coordinator = context.coordinator] in
             coordinator?.parent.callbacks.onSubmit?()
+        }
+        textView.onSubmitWithoutReturn = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.callbacks.onSubmitWithoutReturn?()
+        }
+        textView.onIncreaseFontSize = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.callbacks.onIncreaseFontSize?()
+        }
+        textView.onDecreaseFontSize = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.callbacks.onDecreaseFontSize?()
         }
         textView.onPasteImageData = { [weak coordinator = context.coordinator] data in
             coordinator?.parent.callbacks.onPasteImageData?(data)
@@ -223,6 +235,9 @@ struct MarkdownTextEditor: NSViewRepresentable {
 
 final class MarkdownEditingTextView: NSTextView {
     var onSubmit: (() -> Void)?
+    var onSubmitWithoutReturn: (() -> Void)?
+    var onIncreaseFontSize: (() -> Void)?
+    var onDecreaseFontSize: (() -> Void)?
     var onPasteImageData: ((Data) -> Void)?
     var onPasteFileURL: ((URL) -> Void)?
     var pendingFocusGrab: Bool = false
@@ -232,6 +247,37 @@ final class MarkdownEditingTextView: NSTextView {
         guard pendingFocusGrab else { return }
         pendingFocusGrab = false
         grabFirstResponder()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let store = KeyBindingStore.shared
+        if store.combo(for: .submitRichInput).matches(event: event) {
+            let callback = onSubmit
+            Task { @MainActor in callback?() }
+            return
+        }
+        if store.combo(for: .submitRichInputWithoutReturn).matches(event: event) {
+            let callback = onSubmitWithoutReturn
+            Task { @MainActor in callback?() }
+            return
+        }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.subtracting(.shift) == .command {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "=",
+                 "+":
+                let callback = onIncreaseFontSize
+                Task { @MainActor in callback?() }
+                return
+            case "-":
+                let callback = onDecreaseFontSize
+                Task { @MainActor in callback?() }
+                return
+            default:
+                break
+            }
+        }
+        super.keyDown(with: event)
     }
 
     func grabFirstResponder() {

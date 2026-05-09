@@ -54,6 +54,7 @@ struct MuxyApp: App {
                     NotificationStore.shared.appState = appState
                     NotificationStore.shared.worktreeStore = worktreeStore
                     NotificationStore.shared.markAllAsRead()
+                    MemoryDiagnostics.shared.configure(appState: appState)
                     TerminalProgressStore.shared.appState = appState
                     appDelegate.onTerminate = { [appState] in
                         appState.saveWorkspaces()
@@ -234,6 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationSocketServer.shared.start()
         AIProviderRegistry.shared.installAll()
         _ = AIUsageSettingsStore.isUsageEnabled()
+        DiagnosticsMenuController.shared.install()
 
         consumeLaunchArguments()
     }

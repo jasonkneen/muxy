@@ -9,7 +9,9 @@ struct RichInputSidePanel: View {
     let onSubmit: (_ appendReturn: Bool) -> Void
 
     @AppStorage(RichInputPreferences.fontSizeKey) private var fontSize: Double = RichInputPreferences.defaultFontSize
-    @State private var keyMonitor: Any?
+    @AppStorage(RichInputPreferences.positionKey) private var position: RichInputPanelPosition = RichInputPreferences
+        .defaultPosition
+    @AppStorage(RichInputPreferences.floatingKey) private var floating: Bool = RichInputPreferences.defaultFloating
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,11 +42,6 @@ struct RichInputSidePanel: View {
         .onDrop(of: [UTType.fileURL, UTType.image], isTargeted: nil) { providers in
             handleDrop(providers: providers)
         }
-        .onAppear { installSubmitMonitor() }
-        .onDisappear {
-            removeSubmitMonitor()
-            RichInputDraftStore.shared.flush()
-        }
         .onChange(of: state.text) { persistDraft() }
         .onChange(of: state.fileAttachments) { persistDraft() }
         .onChange(of: state.imageAttachments) { persistDraft() }
@@ -66,6 +63,9 @@ struct RichInputSidePanel: View {
     private var editorCallbacks: MarkdownTextEditor.Callbacks {
         MarkdownTextEditor.Callbacks(
             onSubmit: { onSubmit(true) },
+            onSubmitWithoutReturn: { onSubmit(false) },
+            onIncreaseFontSize: increaseFontSize,
+            onDecreaseFontSize: decreaseFontSize,
             onPasteImageData: { data in
                 guard let url = RichInputImageStorage.write(imageData: data) else { return }
                 insertImagePlaceholder(for: url)
@@ -91,6 +91,20 @@ struct RichInputSidePanel: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
             Spacer(minLength: 8)
+            Button(action: toggleFloating) {
+                Image(systemName: pinToggleIcon)
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .buttonStyle(RichInputToolbarButtonStyle())
+            .accessibilityLabel(pinToggleLabel)
+            .help(pinToggleLabel)
+            Button(action: togglePosition) {
+                Image(systemName: positionToggleIcon)
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .buttonStyle(RichInputToolbarButtonStyle())
+            .accessibilityLabel(positionToggleLabel)
+            .help(positionToggleLabel)
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
                     .font(.system(size: 11, weight: .semibold))
@@ -102,6 +116,36 @@ struct RichInputSidePanel: View {
         .padding(.horizontal, 10)
         .frame(height: 32)
         .background(MuxyTheme.bg)
+    }
+
+    private var positionToggleIcon: String {
+        switch position {
+        case .right: "rectangle.bottomhalf.inset.filled"
+        case .bottom: "rectangle.righthalf.inset.filled"
+        }
+    }
+
+    private var positionToggleLabel: String {
+        switch position {
+        case .right: "Move to Bottom"
+        case .bottom: "Move to Right"
+        }
+    }
+
+    private func togglePosition() {
+        position = position == .right ? .bottom : .right
+    }
+
+    private var pinToggleIcon: String {
+        floating ? "pin" : "pin.slash"
+    }
+
+    private var pinToggleLabel: String {
+        floating ? "Dock Panel" : "Float Panel"
+    }
+
+    private func toggleFloating() {
+        floating.toggle()
     }
 
     private func increaseFontSize() {
@@ -150,42 +194,6 @@ struct RichInputSidePanel: View {
             }
         }
         return consumed
-    }
-
-    private func installSubmitMonitor() {
-        guard keyMonitor == nil else { return }
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
-            guard NSApp.keyWindow?.firstResponder is MarkdownEditingTextView else { return event }
-            let store = KeyBindingStore.shared
-            if store.combo(for: .submitRichInput).matches(event: event) {
-                Task { @MainActor in onSubmit(true) }
-                return nil
-            }
-            if store.combo(for: .submitRichInputWithoutReturn).matches(event: event) {
-                Task { @MainActor in onSubmit(false) }
-                return nil
-            }
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard flags.subtracting(.shift) == .command else { return event }
-            switch event.charactersIgnoringModifiers?.lowercased() {
-            case "=",
-                 "+":
-                Task { @MainActor in increaseFontSize() }
-                return nil
-            case "-":
-                Task { @MainActor in decreaseFontSize() }
-                return nil
-            default:
-                return event
-            }
-        }
-    }
-
-    private func removeSubmitMonitor() {
-        if let monitor = keyMonitor {
-            NSEvent.removeMonitor(monitor)
-            keyMonitor = nil
-        }
     }
 }
 
