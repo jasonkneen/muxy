@@ -23,6 +23,7 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
     var vcsSwitchBranchCalls: [(projectID: UUID, branch: String)] = []
     var vcsCreateBranchCalls: [(projectID: UUID, name: String)] = []
     var vcsCreatePRCalls: [(projectID: UUID, title: String, body: String, baseBranch: String?, draft: Bool)] = []
+    var vcsMergePullRequestCalls: [(projectID: UUID, number: Int, method: VCSMergeMethodDTO, deleteBranch: Bool)] = []
     var vcsAddWorktreeCalls: [(projectID: UUID, name: String, branch: String, createBranch: Bool)] = []
     var vcsRemoveWorktreeCalls: [(projectID: UUID, worktreeID: UUID)] = []
 
@@ -144,6 +145,15 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
     ) async throws -> VCSCreatePRResultDTO {
         vcsCreatePRCalls.append((projectID, title, body, baseBranch, draft))
         return stubCreatePRResult
+    }
+
+    func vcsMergePullRequest(
+        projectID: UUID,
+        number: Int,
+        method: VCSMergeMethodDTO,
+        deleteBranch: Bool
+    ) async throws {
+        vcsMergePullRequestCalls.append((projectID, number, method, deleteBranch))
     }
 
     func vcsAddWorktree(
@@ -508,6 +518,35 @@ struct MuxyRemoteServerRoutingTests {
         }
         #expect(result.url == delegate.stubCreatePRResult.url)
         #expect(result.number == delegate.stubCreatePRResult.number)
+    }
+
+    @Test("vcs merge pull request route forwards params")
+    func vcsMergePullRequestRoute() async {
+        let (server, delegate) = makeServer()
+        let projectID = UUID()
+
+        let response = await server.processRequest(
+            MuxyRequest(
+                id: "8m",
+                method: .vcsMergePullRequest,
+                params: .vcsMergePullRequest(VCSMergePullRequestParams(
+                    projectID: projectID,
+                    number: 42,
+                    method: .squash,
+                    deleteBranch: true
+                ))
+            ),
+            clientID: authedClient(on: server)
+        )
+
+        #expect(delegate.vcsMergePullRequestCalls.first?.projectID == projectID)
+        #expect(delegate.vcsMergePullRequestCalls.first?.number == 42)
+        #expect(delegate.vcsMergePullRequestCalls.first?.method == .squash)
+        #expect(delegate.vcsMergePullRequestCalls.first?.deleteBranch == true)
+        guard case .ok = response.result else {
+            Issue.record("expected ok result")
+            return
+        }
     }
 
     @Test("vcs worktree routes forward input and output")
