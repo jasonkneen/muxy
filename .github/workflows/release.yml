@@ -181,7 +181,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.from_beta_tag }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_RELEASE_PAT }}
 
       - name: Resolve Sparkle dependency
         run: swift package resolve
@@ -255,12 +255,9 @@ jobs:
       - name: Bump BETA_VERSION
         env:
           NEXT: ${{ needs.validate.outputs.next_beta_version }}
-          GH_RELEASE_PAT: ${{ secrets.GH_RELEASE_PAT }}
-          REPO: ${{ github.repository }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin "https://x-access-token:${GH_RELEASE_PAT}@github.com/${REPO}.git"
           git fetch origin main
           git checkout main
           git pull --rebase origin main
