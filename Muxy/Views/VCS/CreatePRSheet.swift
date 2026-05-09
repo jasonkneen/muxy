@@ -24,8 +24,12 @@ struct CreatePRForm: View {
         _ draft: Bool
     ) -> Void
     let onCancel: () -> Void
+    let onGenerateAI: ((_ baseBranch: String) async throws -> AIPullRequestDraft)?
 
     @State private var didLoadRemoteBranches = false
+    @State private var isGeneratingAI = false
+    @State private var aiError: String?
+    @State private var aiTask: Task<Void, Never>?
 
     private var availableBaseBranches: [String] {
         if !context.remoteBranches.isEmpty {
@@ -218,7 +222,13 @@ struct CreatePRForm: View {
 
     private var titleField: some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
-            fieldLabel("Title")
+            HStack(spacing: UIMetrics.spacing2) {
+                fieldLabel("Title")
+                Spacer(minLength: 0)
+                if onGenerateAI != nil {
+                    aiGenerateButton
+                }
+            }
             ThemedTextField(
                 text: $title,
                 placeholder: "Short summary of the change",
@@ -226,7 +236,77 @@ struct CreatePRForm: View {
                 onSubmit: { if canSubmit, !inProgress { submit() } }
             )
             .focused($titleFocused)
+            if let aiError {
+                Text(aiError)
+                    .font(.system(size: UIMetrics.fontFootnote))
+                    .foregroundStyle(MuxyTheme.diffRemoveFg)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+    }
+
+    private var aiGenerateButton: some View {
+        Button {
+            if isGeneratingAI {
+                cancelAIGeneration()
+            } else {
+                generateWithAI()
+            }
+        } label: {
+            HStack(spacing: UIMetrics.spacing2) {
+                if isGeneratingAI {
+                    ProgressView().controlSize(.mini)
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: UIMetrics.fontCaption))
+                } else {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                }
+                Text(isGeneratingAI ? "Cancel" : "Generate with AI")
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+            }
+            .foregroundStyle(MuxyTheme.accent)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(inProgress)
+        .help(isGeneratingAI ? "Cancel generation" : "Generate title and description from the diff")
+    }
+
+    private func generateWithAI() {
+        guard let onGenerateAI else { return }
+        guard !baseBranch.isEmpty else {
+            aiError = "Select a target branch first."
+            return
+        }
+        isGeneratingAI = true
+        aiError = nil
+        let base = baseBranch
+        aiTask?.cancel()
+        aiTask = Task { @MainActor in
+            do {
+                let draft = try await onGenerateAI(base)
+                guard !Task.isCancelled else { return }
+                title = draft.title
+                bodyText = draft.body
+                isGeneratingAI = false
+                aiTask = nil
+            } catch is CancellationError {
+                isGeneratingAI = false
+                aiTask = nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                aiError = error.localizedDescription
+                isGeneratingAI = false
+                aiTask = nil
+            }
+        }
+    }
+
+    private func cancelAIGeneration() {
+        aiTask?.cancel()
+        aiTask = nil
+        isGeneratingAI = false
     }
 
     private var descriptionField: some View {

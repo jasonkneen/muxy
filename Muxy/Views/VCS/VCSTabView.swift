@@ -427,6 +427,15 @@ struct VCSTabView: View {
             onCancel: {
                 state.openPullRequestError = nil
                 showInlinePRForm = false
+            },
+            onGenerateAI: { base in
+                let path = state.projectPath
+                let branch = state.branchName
+                return try await AIAssistantService.generatePullRequest(
+                    repoPath: path,
+                    branch: branch,
+                    baseBranch: base
+                )
             }
         )
     }
@@ -456,6 +465,13 @@ struct VCSTabView: View {
                         }
                         return .ignored
                     }
+
+                HStack {
+                    Spacer()
+                    aiCommitButton
+                }
+                .padding(.trailing, UIMetrics.spacing3)
+                .padding(.top, UIMetrics.scaled(4))
             }
             .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
             .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusMD).stroke(MuxyTheme.border, lineWidth: 1))
@@ -468,6 +484,36 @@ struct VCSTabView: View {
         }
         .padding(UIMetrics.spacing5)
         .background(MuxyTheme.bg)
+    }
+
+    private var aiCommitButton: some View {
+        let isGenerating = state.isGeneratingCommitMessage
+        let canGenerate = !isGenerating && state.hasAnyChanges
+        return Button {
+            if isGenerating {
+                state.cancelCommitMessageGeneration()
+            } else {
+                state.generateCommitMessageWithAI()
+            }
+        } label: {
+            HStack(spacing: UIMetrics.spacing2) {
+                if isGenerating {
+                    ProgressView().controlSize(.mini)
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: UIMetrics.fontCaption))
+                    Text("Cancel")
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                } else {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: UIMetrics.scaled(12), weight: .semibold))
+                }
+            }
+            .foregroundStyle(canGenerate || isGenerating ? MuxyTheme.accent : MuxyTheme.fgDim)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isGenerating && !canGenerate)
+        .help(isGenerating ? "Cancel generation" : "Generate commit message with AI")
     }
 
     private var commitButton: some View {

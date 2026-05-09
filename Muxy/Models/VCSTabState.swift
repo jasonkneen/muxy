@@ -92,6 +92,7 @@ final class VCSTabState {
     var isCommitting = false
     var isPushing = false
     var isPulling = false
+    var isGeneratingCommitMessage = false
     var isSwitchingBranch = false
     var isLoadingBranches = false
     var statusMessage: String?
@@ -182,6 +183,7 @@ final class VCSTabState {
     @ObservationIgnored private var commitLogTask: Task<Void, Never>?
     @ObservationIgnored private var prListTask: Task<Void, Never>?
     @ObservationIgnored private var prAutoSyncTask: Task<Void, Never>?
+    @ObservationIgnored private var aiGenerationTask: Task<Void, Never>?
     @ObservationIgnored private var watcher: FileSystemWatcher?
     @ObservationIgnored nonisolated(unsafe) private var remoteChangeObserver: NSObjectProtocol?
     @ObservationIgnored private var isRefreshing = false
@@ -657,6 +659,42 @@ final class VCSTabState {
                 showStatus(errorText(error), isError: true)
             }
         }
+    }
+
+    func generateCommitMessageWithAI() {
+        guard hasAnyChanges else {
+            showStatus("No changes to summarize.", isError: true)
+            return
+        }
+        if isGeneratingCommitMessage { return }
+        isGeneratingCommitMessage = true
+        let path = projectPath
+        let branch = branchName
+        aiGenerationTask?.cancel()
+        aiGenerationTask = Task { [weak self] in
+            do {
+                let message = try await AIAssistantService.generateCommitMessage(
+                    repoPath: path,
+                    branch: branch
+                )
+                guard let self, !Task.isCancelled else { return }
+                commitMessage = message
+            } catch is CancellationError {
+                return
+            } catch {
+                guard let self, !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+            guard let self else { return }
+            isGeneratingCommitMessage = false
+            aiGenerationTask = nil
+        }
+    }
+
+    func cancelCommitMessageGeneration() {
+        aiGenerationTask?.cancel()
+        aiGenerationTask = nil
+        isGeneratingCommitMessage = false
     }
 
     func push() {
