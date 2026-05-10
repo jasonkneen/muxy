@@ -41,13 +41,30 @@ enum RichInputSubmitter {
         let hasImageSegment = segments.contains { if case .image = $0 { true } else { false } }
         let focusTarget = views.count == 1 ? views.first : nil
 
+        if !hasImageSegment {
+            let payload = textOnlyPayload(segments: segments, appendReturn: appendReturn)
+            Task { @MainActor in
+                for view in views {
+                    view.clearTerminalInput()
+                }
+                try? await Task.sleep(for: initialDelay)
+                for view in views {
+                    view.sendRemoteBytes(payload)
+                }
+                if let focusTarget {
+                    focusTarget.window?.makeFirstResponder(focusTarget)
+                }
+            }
+            return
+        }
+
         Task { @MainActor in
             for view in views {
                 view.clearTerminalInput()
             }
             try? await Task.sleep(for: initialDelay)
 
-            let savedClipboard = hasImageSegment ? SystemPasteboardSnapshot.capture() : nil
+            let savedClipboard = SystemPasteboardSnapshot.capture()
 
             for segment in segments {
                 switch segment {
@@ -70,15 +87,28 @@ enum RichInputSubmitter {
                 }
             }
 
-            if let savedClipboard {
-                try? await Task.sleep(for: imagePasteDelay)
-                SystemPasteboardSnapshot.restore(items: savedClipboard)
-            }
+            try? await Task.sleep(for: imagePasteDelay)
+            SystemPasteboardSnapshot.restore(items: savedClipboard)
 
             if let focusTarget {
                 focusTarget.window?.makeFirstResponder(focusTarget)
             }
         }
+    }
+
+    private static func textOnlyPayload(segments: [Segment], appendReturn: Bool) -> Data {
+        var payload = Data()
+        for segment in segments {
+            guard case let .text(chunk) = segment, !chunk.isEmpty else { continue }
+            let sanitized = chunk.replacingOccurrences(of: "\u{1B}[201~", with: "")
+            payload.append(TerminalControlBytes.bracketedPasteStart)
+            payload.append(Data(sanitized.utf8))
+            payload.append(TerminalControlBytes.bracketedPasteEnd)
+        }
+        if appendReturn {
+            payload.append(TerminalControlBytes.carriageReturn)
+        }
+        return payload
     }
 
     nonisolated static func resolveSegments(
