@@ -12,7 +12,8 @@ enum RichInputSubmitter {
         case image(URL)
     }
 
-    static func submit(richInput: RichInputState, paneID: UUID, appendReturn: Bool) {
+    static func submit(richInput: RichInputState, paneIDs: [UUID], appendReturn: Bool) {
+        guard !paneIDs.isEmpty else { return }
         let body = richInput.text
         let fileAttachments = richInput.fileAttachments
         let imageAttachments = richInput.imageAttachments
@@ -35,29 +36,38 @@ enum RichInputSubmitter {
             strategy: EditorSettings.shared.richInputImageStrategy
         )
 
+        let views = paneIDs.compactMap { TerminalViewRegistry.shared.existingView(for: $0) }
+        guard !views.isEmpty else { return }
+        let hasImageSegment = segments.contains { if case .image = $0 { true } else { false } }
+        let focusTarget = views.count == 1 ? views.first : nil
+
         Task { @MainActor in
-            guard let view = TerminalViewRegistry.shared.existingView(for: paneID) else { return }
-            view.clearTerminalInput()
+            for view in views {
+                view.clearTerminalInput()
+            }
             try? await Task.sleep(for: initialDelay)
 
-            var savedClipboard: [NSPasteboardItem]?
+            let savedClipboard = hasImageSegment ? SystemPasteboardSnapshot.capture() : nil
+
             for segment in segments {
                 switch segment {
                 case let .text(chunk):
-                    if !chunk.isEmpty {
+                    guard !chunk.isEmpty else { continue }
+                    for view in views {
                         view.submitRichInput(text: chunk)
                     }
                 case let .image(url):
-                    if savedClipboard == nil {
-                        savedClipboard = SystemPasteboardSnapshot.capture()
+                    for view in views {
+                        view.pasteImageURL(url)
                     }
-                    view.pasteImageURL(url)
                     try? await Task.sleep(for: imagePasteDelay)
                 }
             }
 
             if appendReturn {
-                view.sendRemoteBytes(TerminalControlBytes.carriageReturn)
+                for view in views {
+                    view.sendRemoteBytes(TerminalControlBytes.carriageReturn)
+                }
             }
 
             if let savedClipboard {
@@ -65,7 +75,9 @@ enum RichInputSubmitter {
                 SystemPasteboardSnapshot.restore(items: savedClipboard)
             }
 
-            view.window?.makeFirstResponder(view)
+            if let focusTarget {
+                focusTarget.window?.makeFirstResponder(focusTarget)
+            }
         }
     }
 
