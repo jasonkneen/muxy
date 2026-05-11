@@ -252,6 +252,10 @@ struct CodeEditorView: NSViewRepresentable {
 
         let textStorage = NSTextStorage()
         let layoutManager = CodeEditorLayoutManager()
+        layoutManager.usesFontLeading = false
+        let lineHeightDelegate = LineHeightLayoutDelegate(fallbackFont: editorSettings.resolvedFont)
+        lineHeightDelegate.lineHeightMultiplier = editorSettings.lineHeightMultiplier
+        layoutManager.delegate = lineHeightDelegate
         textStorage.addLayoutManager(layoutManager)
 
         let textContainer = NSTextContainer(containerSize: NSSize(
@@ -318,6 +322,7 @@ struct CodeEditorView: NSViewRepresentable {
         coordinator.textView = textView
         coordinator.scrollView = scrollView
         coordinator.scrollContainer = container
+        coordinator.lineHeightDelegate = lineHeightDelegate
         textView.onUndoRequest = { [weak coordinator] in
             coordinator?.performUndoRequest() ?? false
         }
@@ -427,15 +432,32 @@ struct CodeEditorView: NSViewRepresentable {
         let themeChanged = coordinator.lastThemeVersion != themeVersion
         let font = editorSettings.resolvedFont
         let fontChanged = textView.font != font
+        let lineHeightMultiplier = editorSettings.lineHeightMultiplier
+        let lineHeightChanged = coordinator.lastLineHeightMultiplier != lineHeightMultiplier
 
         applyThemeAndFont(scrollView: scrollView, textView: textView, font: font)
 
         if fontChanged {
-            viewport.updateEstimatedLineHeight(font: font)
+            coordinator.lineHeightDelegate?.fallbackFont = font
+        }
+
+        if lineHeightChanged {
+            coordinator.lineHeightDelegate?.lineHeightMultiplier = lineHeightMultiplier
+            if let layoutManager = textView.layoutManager, let textContainer = textView.textContainer {
+                let storage = textView.textStorage
+                let fullRange = NSRange(location: 0, length: storage?.length ?? 0)
+                layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+                layoutManager.ensureLayout(for: textContainer)
+            }
+        }
+
+        if fontChanged || lineHeightChanged {
+            viewport.updateEstimatedLineHeight(font: font, lineHeightMultiplier: lineHeightMultiplier)
             viewport.updateDocumentPadding(
                 topInset: textView.textContainerInset.height,
                 bottomInset: textView.textContainerInset.height
             )
+            coordinator.lastLineHeightMultiplier = lineHeightMultiplier
             coordinator.updateContainerHeight()
             coordinator.updateMarkdownEditorScrollMetrics()
             coordinator.refreshViewport(force: true)
@@ -577,6 +599,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         weak var scrollView: NSScrollView?
         weak var scrollContainer: EditorScrollContainer?
+        var lineHeightDelegate: LineHeightLayoutDelegate?
         var viewportState: ViewportState?
         var containerView: ViewportContainerView?
         private(set) var lineWrappingEnabled: Bool = false
@@ -589,6 +612,7 @@ struct CodeEditorView: NSViewRepresentable {
         private var isWritingScrollProgrammatically = false
         var hasAppliedInitialContent = false
         var lastThemeVersion = -1
+        var lastLineHeightMultiplier: CGFloat = -1
         var lastSearchVisible = false
         var lastSearchNeedle = ""
         var lastSearchNavigationVersion = -1
@@ -815,7 +839,10 @@ struct CodeEditorView: NSViewRepresentable {
             clearViewportHistory()
 
             let viewport = ViewportState(backingStore: store)
-            viewport.updateEstimatedLineHeight(font: editorSettings.resolvedFont)
+            viewport.updateEstimatedLineHeight(
+                font: editorSettings.resolvedFont,
+                lineHeightMultiplier: editorSettings.lineHeightMultiplier
+            )
             viewport.lineWrappingEnabled = lineWrappingEnabled
             viewportState = viewport
             invalidateRenderedViewportText()

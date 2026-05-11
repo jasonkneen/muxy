@@ -32,6 +32,11 @@ final class EditorSettings {
     static let markdownPreviewBaseFontSize: CGFloat = 14
     static let markdownPreviewZoomStep: CGFloat = 0.1
 
+    static let defaultLineHeightMultiplier: CGFloat = 1.2
+    static let minLineHeightMultiplier: CGFloat = 1.1
+    static let maxLineHeightMultiplier: CGFloat = 2.0
+    static let lineHeightMultiplierStep: CGFloat = 0.1
+
     var fontSize: CGFloat = 13 { didSet { save() } }
     var fontFamily: String = "SF Mono" { didSet { save() } }
     var defaultEditor: DefaultEditor = .builtIn { didSet { save() } }
@@ -41,6 +46,11 @@ final class EditorSettings {
     var highlightCurrentLine: Bool = true { didSet { save() } }
     var lineWrapping: Bool = false { didSet { save() } }
     var showLineNumbers: Bool = true { didSet { save() } }
+
+    var lineHeightMultiplier: CGFloat = EditorSettings.defaultLineHeightMultiplier {
+        didSet { save() }
+    }
+
     var richInputImageStrategy: RichInputImageStrategy = .clipboard { didSet { save() } }
 
     @ObservationIgnored private let store: CodableFileStore<Snapshot>
@@ -129,6 +139,7 @@ final class EditorSettings {
         highlightCurrentLine = true
         lineWrapping = false
         showLineNumbers = true
+        lineHeightMultiplier = Self.defaultLineHeightMultiplier
         richInputImageStrategy = .clipboard
         isBatchLoading = false
         save()
@@ -151,6 +162,11 @@ final class EditorSettings {
             highlightCurrentLine = snapshot.highlightCurrentLine ?? true
             lineWrapping = snapshot.lineWrapping ?? false
             showLineNumbers = snapshot.showLineNumbers ?? true
+            let loadedMultiplier = snapshot.lineHeightMultiplier ?? Self.defaultLineHeightMultiplier
+            lineHeightMultiplier = min(
+                max(loadedMultiplier, Self.minLineHeightMultiplier),
+                Self.maxLineHeightMultiplier
+            )
             richInputImageStrategy = snapshot.richInputImageStrategy ?? .clipboard
             isBatchLoading = false
         } catch {
@@ -172,6 +188,7 @@ final class EditorSettings {
                 highlightCurrentLine: highlightCurrentLine,
                 lineWrapping: lineWrapping,
                 showLineNumbers: showLineNumbers,
+                lineHeightMultiplier: lineHeightMultiplier,
                 richInputImageStrategy: richInputImageStrategy
             ))
         } catch {
@@ -191,5 +208,6 @@ private struct Snapshot: Codable {
     let highlightCurrentLine: Bool?
     let lineWrapping: Bool?
     let showLineNumbers: Bool?
+    let lineHeightMultiplier: CGFloat?
     let richInputImageStrategy: RichInputImageStrategy?
 }

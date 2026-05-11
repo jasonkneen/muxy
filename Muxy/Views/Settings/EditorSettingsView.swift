@@ -186,6 +186,40 @@ struct EditorSettingsView: View {
                         .buttonStyle(.borderless)
                     }
                 }
+
+                SettingsRow("Line Height") {
+                    HStack(spacing: 8) {
+                        Button {
+                            settings.lineHeightMultiplier = max(
+                                EditorSettings.minLineHeightMultiplier,
+                                settings.lineHeightMultiplier - EditorSettings.lineHeightMultiplierStep
+                            )
+                        } label: {
+                            Image(systemName: "minus")
+                                .font(.system(size: 10, weight: .medium))
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(settings.lineHeightMultiplier <= EditorSettings.minLineHeightMultiplier + 0.001)
+
+                        Text(String(format: "%.1f×", settings.lineHeightMultiplier))
+                            .font(.system(size: SettingsMetrics.labelFontSize, design: .monospaced))
+                            .frame(width: 44)
+
+                        Button {
+                            settings.lineHeightMultiplier = min(
+                                EditorSettings.maxLineHeightMultiplier,
+                                settings.lineHeightMultiplier + EditorSettings.lineHeightMultiplierStep
+                            )
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 10, weight: .medium))
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(settings.lineHeightMultiplier >= EditorSettings.maxLineHeightMultiplier - 0.001)
+                    }
+                }
             }
         }
     }
