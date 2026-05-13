@@ -255,9 +255,8 @@ struct TerminalBridge: NSViewRepresentable {
             Self.resolveFilePath(token, projectPath: projectPath) != nil
         }
         view.onOpenURL = { url in
-            if let projectID, url.isFileURL {
-                let path = url.path
-                guard !path.isEmpty, FileManager.default.fileExists(atPath: path) else { return false }
+            if let path = Self.resolveLocalFilePath(from: url, projectPath: projectPath) {
+                guard let projectID else { return false }
                 Task { @MainActor in
                     NotificationStore.shared.appState?.openFile(path, projectID: projectID, preserveFocus: true)
                 }
@@ -280,6 +279,20 @@ struct TerminalBridge: NSViewRepresentable {
         guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory) else { return nil }
         guard !isDirectory.boolValue else { return nil }
         return candidate
+    }
+
+    static func resolveLocalFilePath(from url: URL, projectPath: String) -> String? {
+        if url.isFileURL {
+            let path = url.path
+            guard !path.isEmpty else { return nil }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else { return nil }
+            guard !isDirectory.boolValue else { return nil }
+            return path
+        }
+        guard url.scheme == nil else { return nil }
+        let raw = url.absoluteString.removingPercentEncoding ?? url.absoluteString
+        return resolveFilePath(raw, projectPath: projectPath)
     }
 
     private func configureProgressCallback(_ view: GhosttyTerminalNSView) {

@@ -68,4 +68,40 @@ struct TerminalBridgeResolveFilePathTests {
         let resolved = TerminalBridge.resolveFilePath("~/\(name)", projectPath: "/unused")
         #expect(resolved == path)
     }
+
+    @Test func resolvesLocalFilePathFromFileURL() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = writeFile(dir, name: "doc.md")
+        let url = URL(fileURLWithPath: file)
+        #expect(TerminalBridge.resolveLocalFilePath(from: url, projectPath: "/unused") == file)
+    }
+
+    @Test func resolvesLocalFilePathFromSchemelessAbsolutePath() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = writeFile(dir, name: "notes.md")
+        let url = try #require(URL(string: file))
+        #expect(TerminalBridge.resolveLocalFilePath(from: url, projectPath: "/unused") == file)
+    }
+
+    @Test func resolvesLocalFilePathFromSchemelessRelativePath() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = writeFile(dir, name: "readme.md")
+        let url = try #require(URL(string: "readme.md"))
+        #expect(TerminalBridge.resolveLocalFilePath(from: url, projectPath: dir.path) == file)
+    }
+
+    @Test func resolvesLocalFilePathRejectsHttpURL() throws {
+        let url = try #require(URL(string: "https://example.com/readme.md"))
+        #expect(TerminalBridge.resolveLocalFilePath(from: url, projectPath: "/tmp") == nil)
+    }
+
+    @Test func resolvesLocalFilePathRejectsDirectoryFileURL() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = URL(fileURLWithPath: dir.path)
+        #expect(TerminalBridge.resolveLocalFilePath(from: url, projectPath: "/unused") == nil)
+    }
 }
