@@ -47,7 +47,7 @@
 	<key>NSLocationUsageDescription</key>
 	<string>A process running in Muxy's terminal would like to access your location information.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>A process running in Muxy's terminal would like to use your microphone.</string>
+	<string>Muxy uses the microphone to transcribe your speech into text and insert it where you're typing.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>A process running in Muxy's terminal would like to access motion data.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
