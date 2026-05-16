@@ -10,10 +10,13 @@ struct GeneralSettingsView: View {
     private var confirmRunningProcess = true
     @AppStorage(ProjectLifecyclePreferences.keepOpenWhenNoTabsKey)
     private var keepProjectsOpenWhenNoTabs = false
+    @AppStorage(ProjectPickerPreferences.storageKey)
+    private var projectPickerModeRaw = ProjectPickerMode.custom.rawValue
     @AppStorage(UpdateChannel.storageKey)
     private var updateChannelRaw = UpdateChannel.stable.rawValue
     @AppStorage(QuitConfirmationPreferences.confirmQuitKey)
     private var confirmQuit = true
+    @State private var projectPickerDefaultLocationSettings = ProjectPickerDefaultLocationSettingsModel()
     @State private var sentry = SentryService.shared
 
     var body: some View {
@@ -46,9 +49,25 @@ struct GeneralSettingsView: View {
 
             SettingsSection(
                 "Projects",
-                footer: "Keep projects in the sidebar after closing their last tab. "
-                    + "To remove a project afterward, use the right-click menu."
+                footer: projectsFooter
             ) {
+                SettingsRow("Muxy Picker") {
+                    Picker("", selection: $projectPickerModeRaw) {
+                        ForEach(ProjectPickerMode.allCases) { mode in
+                            Text(mode.label).tag(mode.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                }
+
+                if projectPickerMode == .custom {
+                    ProjectPickerDefaultLocationSettingsView(
+                        model: projectPickerDefaultLocationSettings,
+                        pickerModeRaw: projectPickerModeRaw
+                    )
+                }
+
                 SettingsToggleRow(
                     label: "Keep projects open after closing the last tab",
                     isOn: $keepProjectsOpenWhenNoTabs
@@ -108,6 +127,18 @@ struct GeneralSettingsView: View {
                 UpdateService.shared.channel = newValue
             }
         )
+    }
+
+    private var projectPickerMode: ProjectPickerMode {
+        ProjectPickerMode(rawValue: projectPickerModeRaw) ?? .custom
+    }
+
+    private var projectsFooter: String {
+        if projectPickerMode == .custom {
+            return "Muxy Picker starts in this default location. Use App Default to reset it. "
+                + "Projects can stay in the sidebar after closing their last tab."
+        }
+        return "Muxy Picker can use Finder or Muxy's picker. Projects can stay in the sidebar after closing their last tab."
     }
 
     private var defaultWorktreeLocationText: String {
